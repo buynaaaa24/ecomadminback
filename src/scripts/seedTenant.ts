@@ -13,14 +13,25 @@ async function main() {
   await Tenant.create({
     name: "ikhNayd Demo Site",
     slug: "demo",
+    domain: "",
+    databaseUri: "",
     primaryColor: "#D32F2F",
+    secondaryColor: "#0f172a",
+    accentColor: "#FFC107",
+    logo: "",
     font: "Inter",
     layout: "modern",
+    description: "ikhNayd эко-систем дэх туршилтын сайт",
+    bannerTitle: "Хамгийн шилдэг бараанууд",
+    bannerSubtitle: "Хямдрал, шинэ бараа, хүргэлт",
+    contactEmail: "info@demo.mn",
+    contactPhone: "7700-0000",
+    address: "Улаанбаатар хот",
     features: { reviews: true, chat: false, loyaltyProgram: false },
-    status: "active"
+    status: "active",
   });
 
-  console.log(`Seeded default Demo tenant.`);
+  console.log("Seeded default Demo tenant.");
 }
 
 main()
