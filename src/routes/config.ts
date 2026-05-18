@@ -15,9 +15,13 @@ configRouter.get("/", async (req, res, next) => {
 
     if (querySlug) {
       tenant = await Tenant.findOne({ slug: querySlug.toLowerCase().trim(), status: "active" }).lean();
-    }
-
-    if (!tenant) {
+      if (!tenant) {
+        res.status(404).json({
+          error: { code: "NOT_FOUND", message: "No matching active tenant found" },
+        });
+        return;
+      }
+    } else {
       const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
       if (host && host !== "localhost" && host !== "127.0.0.1" && !isIp) {
         // 1. Match by exact custom domain
