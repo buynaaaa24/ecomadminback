@@ -17,7 +17,7 @@ import { productsRouter } from "./routes/products.js";
 const app = express();
 const port = Number(process.env.PORT) || 8000;
 
-const envOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:3000,http://localhost:3001,http://localhost:3002")
+const envOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:7000,http://localhost:7001,http://localhost:7002")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
