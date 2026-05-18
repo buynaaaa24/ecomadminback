@@ -9,21 +9,29 @@ configRouter.get("/", async (req, res, next) => {
     // Prefer the explicit header, fall back to Host header
     const raw = (req.headers["x-tenant-host"] ?? req.headers.host ?? "") as string;
     const host = raw.split(":")[0].toLowerCase().trim();
+    const querySlug = req.query.tenant as string | undefined;
 
     let tenant = null;
 
-    if (host && host !== "localhost" && host !== "127.0.0.1") {
-      // 1. Match by exact custom domain
-      tenant = await Tenant.findOne({ domain: host, status: "active" }).lean();
+    if (querySlug) {
+      tenant = await Tenant.findOne({ slug: querySlug.toLowerCase().trim(), status: "active" }).lean();
+    }
 
-      // 2. Fall back: match by slug (allows <slug>.yourdomain.com style)
-      if (!tenant) {
-        const subSlug = host.split(".")[0];
-        tenant = await Tenant.findOne({ slug: subSlug, status: "active" }).lean();
+    if (!tenant) {
+      const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+      if (host && host !== "localhost" && host !== "127.0.0.1" && !isIp) {
+        // 1. Match by exact custom domain
+        tenant = await Tenant.findOne({ domain: host, status: "active" }).lean();
+
+        // 2. Fall back: match by slug (allows <slug>.yourdomain.com style)
+        if (!tenant) {
+          const subSlug = host.split(".")[0];
+          tenant = await Tenant.findOne({ slug: subSlug, status: "active" }).lean();
+        }
+      } else {
+        // Local dev or IP direct: return the first active tenant
+        tenant = await Tenant.findOne({ status: "active" }).lean();
       }
-    } else {
-      // Local dev: return the first active tenant
-      tenant = await Tenant.findOne({ status: "active" }).lean();
     }
 
     if (!tenant) {
