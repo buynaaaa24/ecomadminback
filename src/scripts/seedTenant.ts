@@ -11,7 +11,7 @@ async function main() {
   }
 
   await Tenant.create({
-    name: "ikhNayd Demo Site",
+    name: "Demo Site",
     slug: "demo",
     domain: "",
     databaseUri: "",
@@ -21,7 +21,7 @@ async function main() {
     logo: "",
     font: "Inter",
     layout: "modern",
-    description: "ikhNayd эко-систем дэх туршилтын сайт",
+    description: "эко-систем дэх туршилтын сайт",
     bannerTitle: "Хамгийн шилдэг бараанууд",
     bannerSubtitle: "Хямдрал, шинэ бараа, хүргэлт",
     contactEmail: "info@demo.mn",

@@ -36,7 +36,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use("/upload", express.static(UPLOAD_DIR));
 
 app.get("/", (_req, res) => {
-  res.json({ data: { name: "ikhnayd-back", version: "1.0.0" } });
+  res.json({ data: { name: "ecom-back", version: "1.0.0" } });
 });
 
 // Storefront public endpoints
@@ -58,7 +58,7 @@ async function main() {
   const server = http.createServer(app);
   
   server.listen(port, () => {
-    console.log(`ikhnayd-back listening on http://localhost:${port}`);
+    console.log(`ecom-back listening on http://localhost:${port}`);
   });
 }
 

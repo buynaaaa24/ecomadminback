@@ -5,28 +5,37 @@ import { AdminUser } from "../models/AdminUser.js";
 
 async function main() {
   await connectMongo();
-  const existing = await AdminUser.countDocuments();
-  if (existing > 0) {
-    console.log("AdminUser documents already exist; nothing to seed.");
-    return;
+  // Seed legacy superadmin@gmail.mn / admin
+  const legacyEmail = "superadmin@gmail.mn";
+  const legacyExists = await AdminUser.findOne({ email: legacyEmail });
+  if (!legacyExists) {
+    const passwordHash = await bcrypt.hash("admin", 10);
+    await AdminUser.create({
+      username: "superadmin",
+      email: legacyEmail,
+      passwordHash,
+      displayName: "Super Admin",
+      role: "superadmin",
+      active: true,
+    });
+    console.log(`Seeded Super AdminUser: ${legacyEmail} / admin`);
   }
 
-  const email = "superadmin@ikhnayd.mn";
-  const password = "admin";
-  const username = "superadmin";
-
-  const passwordHash = await bcrypt.hash(password, 10);
-
-  await AdminUser.create({
-    username,
-    email,
-    passwordHash,
-    displayName: "Super Admin",
-    role: "superadmin",
-    active: true,
-  });
-
-  console.log(`Seeded Super AdminUser: ${email} / ${password}`);
+  // Seed admin@gmail.mn / admin123
+  const newEmail = "admin@gmail.mn";
+  const newExists = await AdminUser.findOne({ email: newEmail });
+  if (!newExists) {
+    const passwordHash = await bcrypt.hash("admin123", 10);
+    await AdminUser.create({
+      username: "admin",
+      email: newEmail,
+      passwordHash,
+      displayName: "Super Administrator",
+      role: "superadmin",
+      active: true,
+    });
+    console.log(`Seeded Super AdminUser: ${newEmail} / admin123`);
+  }
 }
 
 main()
