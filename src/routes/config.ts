@@ -33,7 +33,6 @@ configRouter.get("/", async (req, res, next) => {
           tenant = await Tenant.findOne({ slug: subSlug, status: "active" }).lean();
         }
       } else {
-        // Local dev or IP direct: return the first active tenant
         tenant = await Tenant.findOne({ status: "active" }).lean();
       }
     }
@@ -83,7 +82,27 @@ configRouter.get("/", async (req, res, next) => {
 
 configRouter.patch("/", async (req, res, next) => {
   try {
-    const tenant = await Tenant.findOne({ status: "active" });
+    const raw = (req.headers["x-tenant-host"] ?? req.headers.host ?? "") as string;
+    const host = raw.split(":")[0].toLowerCase().trim();
+    const querySlug = req.query.tenant as string | undefined;
+
+    let tenant = null;
+
+    if (querySlug) {
+      tenant = await Tenant.findOne({ slug: querySlug.toLowerCase().trim(), status: "active" });
+    } else {
+      const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+      if (host && host !== "localhost" && host !== "127.0.0.1" && !isIp) {
+        tenant = await Tenant.findOne({ domain: host, status: "active" });
+        if (!tenant) {
+          const subSlug = host.split(".")[0];
+          tenant = await Tenant.findOne({ slug: subSlug, status: "active" });
+        }
+      } else {
+        tenant = await Tenant.findOne({ status: "active" });
+      }
+    }
+
     if (!tenant) {
       res.status(404).json({ error: { code: "NOT_FOUND", message: "No active tenant found" } });
       return;
