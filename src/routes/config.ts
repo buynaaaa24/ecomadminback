@@ -1,4 +1,5 @@
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import { Tenant } from "../models/Tenant.js";
 import { serializeLean } from "../util/serialize.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
@@ -14,7 +15,24 @@ configRouter.get("/", async (req, res, next) => {
 
     let tenant = null;
 
-    if (querySlug) {
+    // Optional auth check for admins loading their specific tenant config
+    const rawAuth = req.headers.authorization;
+    if (rawAuth) {
+      const m = rawAuth.match(/^Bearer\s+(.+)$/i);
+      if (m && m[1]) {
+        try {
+          const secret = process.env.ADMIN_JWT_SECRET ?? "";
+          const payload = jwt.verify(m[1], secret) as jwt.JwtPayload;
+          if (payload.tenantId) {
+            tenant = await Tenant.findById(payload.tenantId).lean();
+          }
+        } catch (e) {
+          // ignore error, fall back to normal resolution
+        }
+      }
+    }
+
+    if (!tenant && querySlug) {
       tenant = await Tenant.findOne({ slug: querySlug.toLowerCase().trim(), status: "active" }).lean();
       if (!tenant) {
         res.status(404).json({
@@ -22,7 +40,7 @@ configRouter.get("/", async (req, res, next) => {
         });
         return;
       }
-    } else {
+    } else if (!tenant) {
       const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
       if (host && host !== "localhost" && host !== "127.0.0.1" && !isIp) {
         // 1. Match by exact custom domain
