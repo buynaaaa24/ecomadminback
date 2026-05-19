@@ -3,7 +3,7 @@ import http from "http";
 import cors from "cors";
 import express from "express";
 import { connectMongo } from "./db.js";
-import { UPLOAD_DIR } from "./uploadConfig.js";
+import { UPLOAD_DIR, upload } from "./uploadConfig.js";
 
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFoundHandler } from "./middleware/notFoundHandler.js";
@@ -41,6 +41,15 @@ app.get("/", (_req, res) => {
 
 // Storefront public endpoints
 app.use("/api/config", configRouter);
+
+app.post("/api/upload", upload.single("file"), (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: "No file uploaded" });
+    return;
+  }
+  const url = `${req.protocol}://${req.get("host")}/upload/${req.file.filename}`;
+  res.json({ url });
+});
 
 // Common auth
 app.use("/api/auth", authRouter);

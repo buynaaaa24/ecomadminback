@@ -80,3 +80,41 @@ configRouter.get("/", async (req, res, next) => {
     next(e);
   }
 });
+
+configRouter.patch("/", async (req, res, next) => {
+  try {
+    const tenant = await Tenant.findOne({ status: "active" });
+    if (!tenant) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "No active tenant found" } });
+      return;
+    }
+
+    const {
+      storeName,
+      logo,
+      primaryColor,
+      bannerTitle,
+      bannerSubtitle,
+      contactEmail,
+      contactPhone,
+      address,
+      features,
+    } = req.body;
+
+    if (storeName !== undefined) tenant.name = storeName;
+    if (logo !== undefined) tenant.logo = logo;
+    if (primaryColor !== undefined) tenant.primaryColor = primaryColor;
+    if (bannerTitle !== undefined) tenant.bannerTitle = bannerTitle;
+    if (bannerSubtitle !== undefined) tenant.bannerSubtitle = bannerSubtitle;
+    if (contactEmail !== undefined) tenant.contactEmail = contactEmail;
+    if (contactPhone !== undefined) tenant.contactPhone = contactPhone;
+    if (address !== undefined) tenant.address = address;
+    if (features !== undefined) tenant.features = features;
+
+    await tenant.save();
+
+    res.json({ success: true, message: "Settings updated" });
+  } catch (e) {
+    next(e);
+  }
+});
