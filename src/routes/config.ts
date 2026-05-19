@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { Tenant } from "../models/Tenant.js";
 import { serializeLean } from "../util/serialize.js";
+import { requireAdminAuth } from "../middleware/adminAuth.js";
 
 export const configRouter = Router();
 
@@ -80,26 +81,32 @@ configRouter.get("/", async (req, res, next) => {
   }
 });
 
-configRouter.patch("/", async (req, res, next) => {
+configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
   try {
-    const raw = (req.headers["x-tenant-host"] ?? req.headers.host ?? "") as string;
-    const host = raw.split(":")[0].toLowerCase().trim();
-    const querySlug = req.query.tenant as string | undefined;
-
+    const admin = req.admin;
     let tenant = null;
 
-    if (querySlug) {
-      tenant = await Tenant.findOne({ slug: querySlug.toLowerCase().trim(), status: "active" });
+    if (admin && admin.tenantId) {
+      tenant = await Tenant.findById(admin.tenantId);
     } else {
-      const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
-      if (host && host !== "localhost" && host !== "127.0.0.1" && !isIp) {
-        tenant = await Tenant.findOne({ domain: host, status: "active" });
-        if (!tenant) {
-          const subSlug = host.split(".")[0];
-          tenant = await Tenant.findOne({ slug: subSlug, status: "active" });
-        }
+      // Fallback for superadmin without specific tenantId
+      const raw = (req.headers["x-tenant-host"] ?? req.headers.host ?? "") as string;
+      const host = raw.split(":")[0].toLowerCase().trim();
+      const querySlug = req.query.tenant as string | undefined;
+
+      if (querySlug) {
+        tenant = await Tenant.findOne({ slug: querySlug.toLowerCase().trim(), status: "active" });
       } else {
-        tenant = await Tenant.findOne({ status: "active" });
+        const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+        if (host && host !== "localhost" && host !== "127.0.0.1" && !isIp) {
+          tenant = await Tenant.findOne({ domain: host, status: "active" });
+          if (!tenant) {
+            const subSlug = host.split(".")[0];
+            tenant = await Tenant.findOne({ slug: subSlug, status: "active" });
+          }
+        } else {
+          tenant = await Tenant.findOne({ status: "active" });
+        }
       }
     }
 
