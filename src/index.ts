@@ -13,6 +13,7 @@ import { configRouter } from "./routes/config.js";
 import { tenantsRouter } from "./routes/tenants.js";
 import { adminUsersRouter } from "./routes/adminUsers.js";
 import { productsRouter } from "./routes/products.js";
+import { categoriesRouter } from "./routes/categories.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 8000;
@@ -58,6 +59,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/tenants", tenantsRouter);
 app.use("/api/admin-users", adminUsersRouter);
 app.use("/api/products", productsRouter);
+app.use("/api/categories", categoriesRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

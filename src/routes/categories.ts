@@ -1,36 +1,36 @@
 import { Router } from "express";
 import mongoose from "mongoose";
-import { Product } from "../models/Product.js";
-import { getProductModel } from "../models/productSchema.js";
+import { Category } from "../models/Category.js";
+import { getCategoryModel } from "../models/categorySchema.js";
 import { Tenant } from "../models/Tenant.js";
 import { getTenantConnection } from "../db.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 import { serializeDocument, serializeLean } from "../util/serialize.js";
 
-export const productsRouter = Router();
+export const categoriesRouter = Router();
 
 /**
- * Resolve the Product model to use for a given tenantId.
+ * Resolve the Category model to use for a given tenantId.
  * If the tenant has a dedicated databaseUri, use a per-connection model.
  * Otherwise fall back to the shared central model (with tenantId filter).
  */
-async function resolveProductModel(tenantId: string | null | undefined): Promise<{
-  Model: typeof Product | ReturnType<typeof getProductModel>;
+async function resolveCategoryModel(tenantId: string | null | undefined): Promise<{
+  Model: typeof Category | ReturnType<typeof getCategoryModel>;
   useTenantFilter: boolean;
 }> {
   if (tenantId) {
     const tenant = await Tenant.findById(tenantId).lean<{ databaseUri?: string }>();
     if (tenant?.databaseUri) {
       const conn = await getTenantConnection(tenant.databaseUri);
-      return { Model: getProductModel(conn), useTenantFilter: false };
+      return { Model: getCategoryModel(conn), useTenantFilter: false };
     }
   }
-  return { Model: Product, useTenantFilter: true };
+  return { Model: Category, useTenantFilter: true };
 }
 
 // ── Public endpoint for storefront ────────────────────────────────────────────
 
-productsRouter.get("/public", async (req, res, next) => {
+categoriesRouter.get("/public", async (req, res, next) => {
   try {
     const tenantId = req.query.tenantId as string | undefined;
     if (!tenantId) {
@@ -38,9 +38,9 @@ productsRouter.get("/public", async (req, res, next) => {
       return;
     }
 
-    const { Model, useTenantFilter } = await resolveProductModel(tenantId);
+    const { Model, useTenantFilter } = await resolveCategoryModel(tenantId);
     const filter = useTenantFilter ? { tenantId, status: "active" } : { status: "active" };
-    const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
+    const list = await Model.find(filter).sort({ name: 1 }).lean();
     res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);
@@ -49,29 +49,29 @@ productsRouter.get("/public", async (req, res, next) => {
 
 // ── Admin endpoints ───────────────────────────────────────────────────────────
 
-productsRouter.use(requireAdminAuth);
+categoriesRouter.use(requireAdminAuth);
 
-productsRouter.get("/", async (req, res, next) => {
+categoriesRouter.get("/", async (req, res, next) => {
   try {
     const a = req.admin!;
     const targetTenantId = a.role === "superadmin"
       ? (req.query.tenantId as string | undefined)
       : a.tenantId ?? undefined;
 
-    const { Model, useTenantFilter } = await resolveProductModel(targetTenantId);
+    const { Model, useTenantFilter } = await resolveCategoryModel(targetTenantId);
     const filter: Record<string, unknown> = {};
     if (useTenantFilter && targetTenantId) {
       filter.tenantId = new mongoose.Types.ObjectId(targetTenantId);
     }
 
-    const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
+    const list = await Model.find(filter).sort({ name: 1 }).lean();
     res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);
   }
 });
 
-productsRouter.post("/", async (req, res, next) => {
+categoriesRouter.post("/", async (req, res, next) => {
   try {
     const a = req.admin!;
     const body = { ...req.body };
@@ -81,7 +81,7 @@ productsRouter.post("/", async (req, res, next) => {
       body.tenantId = a.tenantId;
     }
 
-    const { Model, useTenantFilter } = await resolveProductModel(body.tenantId);
+    const { Model, useTenantFilter } = await resolveCategoryModel(body.tenantId);
     // In a dedicated tenant DB, tenantId is redundant — strip it to keep docs clean
     if (!useTenantFilter) delete body.tenantId;
 
@@ -92,18 +92,18 @@ productsRouter.post("/", async (req, res, next) => {
   }
 });
 
-productsRouter.patch("/:id", async (req, res, next) => {
+categoriesRouter.patch("/:id", async (req, res, next) => {
   try {
     const a = req.admin!;
     const tenantId = a.role !== "superadmin" ? a.tenantId : undefined;
 
-    const { Model, useTenantFilter } = await resolveProductModel(tenantId);
+    const { Model, useTenantFilter } = await resolveCategoryModel(tenantId);
     const filter: Record<string, unknown> = { _id: req.params.id };
     if (useTenantFilter && tenantId) filter.tenantId = tenantId;
 
     const doc = await Model.findOneAndUpdate(filter, req.body, { new: true });
     if (!doc) {
-      res.status(404).json({ error: { code: "NOT_FOUND", message: "Product not found" } });
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Category not found" } });
       return;
     }
     res.json({ data: serializeDocument(doc) });
@@ -112,18 +112,18 @@ productsRouter.patch("/:id", async (req, res, next) => {
   }
 });
 
-productsRouter.delete("/:id", async (req, res, next) => {
+categoriesRouter.delete("/:id", async (req, res, next) => {
   try {
     const a = req.admin!;
     const tenantId = a.role !== "superadmin" ? a.tenantId : undefined;
 
-    const { Model, useTenantFilter } = await resolveProductModel(tenantId);
+    const { Model, useTenantFilter } = await resolveCategoryModel(tenantId);
     const filter: Record<string, unknown> = { _id: req.params.id };
     if (useTenantFilter && tenantId) filter.tenantId = tenantId;
 
     const doc = await Model.findOneAndDelete(filter);
     if (!doc) {
-      res.status(404).json({ error: { code: "NOT_FOUND", message: "Product not found" } });
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Category not found" } });
       return;
     }
     res.status(204).send();
