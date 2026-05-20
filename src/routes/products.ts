@@ -40,7 +40,8 @@ productsRouter.get("/public", async (req, res, next) => {
     }
 
     const { Model, useTenantFilter } = await resolveProductModel(tenantId);
-    const filter = useTenantFilter ? { tenantId, status: "active" } : { status: "active" };
+    const statusFilter = { status: { $nin: ["inactive", "draft"] } };
+    const filter = useTenantFilter ? { tenantId, ...statusFilter } : statusFilter;
     const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
     res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
