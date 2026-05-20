@@ -20,8 +20,9 @@ async function resolveCategoryModel(tenantId: string | null | undefined): Promis
 }> {
   if (tenantId) {
     const tenant = await Tenant.findById(tenantId).lean<{ databaseUri?: string }>();
-    if (tenant?.databaseUri) {
-      const conn = await getTenantConnection(tenant.databaseUri);
+    const uri = tenant?.databaseUri;
+    if (uri && (uri.startsWith("mongodb://") || uri.startsWith("mongodb+srv://"))) {
+      const conn = await getTenantConnection(uri);
       return { Model: getCategoryModel(conn), useTenantFilter: false };
     }
   }

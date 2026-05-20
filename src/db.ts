@@ -18,6 +18,9 @@ export async function connectMongo(): Promise<void> {
 export async function getTenantConnection(
   databaseUri: string,
 ): Promise<mongoose.Connection> {
+  if (!databaseUri.startsWith("mongodb://") && !databaseUri.startsWith("mongodb+srv://")) {
+    throw new Error(`Invalid databaseUri for tenant connection: "${databaseUri}"`);
+  }
   const existing = pool.get(databaseUri);
   if (existing && existing.readyState === 1) return existing;
 
