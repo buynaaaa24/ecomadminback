@@ -67,6 +67,7 @@ configRouter.get("/", async (req, res, next) => {
 
     res.json({
       tenantId: t._id,
+      slug: t.slug,
       branding: {
         name: t.name,
         logo: t.logo,
@@ -93,6 +94,13 @@ configRouter.get("/", async (req, res, next) => {
         address: t.address,
       },
       features: t.features,
+      promo: {
+        visible: t.promoVisible ?? true,
+        label: t.promoLabel ?? "Хязгаартай",
+        discount: t.promoDiscount ?? "30% OFF",
+        subtitle: t.promoSubtitle ?? "",
+        href: t.promoHref ?? "/",
+      },
     });
   } catch (e) {
     next(e);
@@ -143,6 +151,11 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       contactPhone,
       address,
       features,
+      promoVisible,
+      promoLabel,
+      promoDiscount,
+      promoSubtitle,
+      promoHref,
     } = req.body;
 
     if (storeName !== undefined) tenant.name = storeName;
@@ -154,6 +167,11 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (contactPhone !== undefined) tenant.contactPhone = contactPhone;
     if (address !== undefined) tenant.address = address;
     if (features !== undefined) tenant.features = features;
+    if (promoVisible !== undefined) tenant.promoVisible = promoVisible;
+    if (promoLabel !== undefined) tenant.promoLabel = promoLabel;
+    if (promoDiscount !== undefined) tenant.promoDiscount = promoDiscount;
+    if (promoSubtitle !== undefined) tenant.promoSubtitle = promoSubtitle;
+    if (promoHref !== undefined) tenant.promoHref = promoHref;
 
     await tenant.save();
 

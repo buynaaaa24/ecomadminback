@@ -34,6 +34,13 @@ const TenantSchema = new Schema(
     contactPhone: { type: String, default: "" },
     address: { type: String, default: "" },
 
+    // ── Promo block (MegaMenu right sidebar) ───────────────────────────────────
+    promoVisible: { type: Boolean, default: true },
+    promoLabel: { type: String, default: "Хязгаартай" },
+    promoDiscount: { type: String, default: "30% OFF" },
+    promoSubtitle: { type: String, default: "" },
+    promoHref: { type: String, default: "/" },
+
     // ── Feature flags ───────────────────────────────────────────────────────────
     features: {
       reviews: { type: Boolean, default: false },
