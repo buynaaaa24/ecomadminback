@@ -10,7 +10,8 @@
     "lint": "eslint src",
     "seed:admin": "tsx src/scripts/seedAdminUser.ts",
     "seed:tenant": "tsx src/scripts/seedTenant.ts",
-    "seed:go-to-market": "tsx src/scripts/seedGoToMarket.ts"
+    "seed:go-to-market": "tsx src/scripts/seedGoToMarket.ts",
+    "seed:go-to-market:subcats": "tsx src/scripts/seedGoToMarketSubcats.ts"
   },
   "engines": {
     "node": ">=20"
