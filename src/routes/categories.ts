@@ -127,6 +127,10 @@ categoriesRouter.delete("/:id", async (req, res, next) => {
       res.status(404).json({ error: { code: "NOT_FOUND", message: "Category not found" } });
       return;
     }
+
+    // Cascading delete: delete all subcategories belonging to this category
+    await Model.deleteMany({ parentId: req.params.id });
+
     res.status(204).send();
   } catch (e) {
     next(e);
