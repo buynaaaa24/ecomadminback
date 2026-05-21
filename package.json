@@ -11,7 +11,8 @@
     "seed:admin": "tsx src/scripts/seedAdminUser.ts",
     "seed:tenant": "tsx src/scripts/seedTenant.ts",
     "seed:go-to-market": "tsx src/scripts/seedGoToMarket.ts",
-    "seed:go-to-market:subcats": "tsx src/scripts/seedGoToMarketSubcats.ts"
+    "seed:go-to-market:subcats": "tsx src/scripts/seedGoToMarketSubcats.ts",
+    "seed:go-to-market:distribute": "tsx src/scripts/seedGoToMarketDistribute.ts"
   },
   "engines": {
     "node": ">=20"
