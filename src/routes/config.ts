@@ -94,6 +94,7 @@ configRouter.get("/", async (req, res, next) => {
         address: t.address,
       },
       features: t.features,
+      locations: Array.isArray(t.locations) ? t.locations : [],
       promo: {
         visible: t.promoVisible ?? true,
         label: t.promoLabel ?? "Хязгаартай",
@@ -145,6 +146,8 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       storeName,
       logo,
       primaryColor,
+      description,
+      locations,
       bannerTitle,
       bannerSubtitle,
       contactEmail,
@@ -161,6 +164,8 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (storeName !== undefined) tenant.name = storeName;
     if (logo !== undefined) tenant.logo = logo;
     if (primaryColor !== undefined) tenant.primaryColor = primaryColor;
+    if (description !== undefined) tenant.description = description;
+    if (locations !== undefined) tenant.locations = locations;
     if (bannerTitle !== undefined) tenant.bannerTitle = bannerTitle;
     if (bannerSubtitle !== undefined) tenant.bannerSubtitle = bannerSubtitle;
     if (contactEmail !== undefined) tenant.contactEmail = contactEmail;

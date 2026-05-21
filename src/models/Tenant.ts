@@ -41,6 +41,17 @@ const TenantSchema = new Schema(
     promoSubtitle: { type: String, default: "" },
     promoHref: { type: String, default: "/" },
 
+    // ── Branch locations ────────────────────────────────────────────────────────
+    locations: [
+      {
+        name:     { type: String, default: "" },
+        district: { type: String, default: "" },
+        address:  { type: String, default: "" },
+        phone:    { type: String, default: "" },
+        hours:    { type: String, default: "" },
+      },
+    ],
+
     // ── Feature flags ───────────────────────────────────────────────────────────
     features: {
       reviews: { type: Boolean, default: false },
