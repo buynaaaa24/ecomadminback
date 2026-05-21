@@ -52,6 +52,14 @@ const TenantSchema = new Schema(
       },
     ],
 
+    // ── Homepage config ──────────────────────────────────────────────────────────
+    /** Array of { href, title, subtitle, emoji, image } — big (left) carousel slides */
+    bannerSlidesBig:   { type: Schema.Types.Mixed, default: [] },
+    /** Array of { href, title, subtitle, emoji, image } — small (right) carousel slides */
+    bannerSlidesSmall: { type: Schema.Types.Mixed, default: [] },
+    /** Array of 9 × { label, sub, href, image } — GroceryBento tiles */
+    bentoTiles:        { type: Schema.Types.Mixed, default: [] },
+
     // ── Feature flags ───────────────────────────────────────────────────────────
     features: {
       reviews: { type: Boolean, default: false },

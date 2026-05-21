@@ -80,14 +80,25 @@ configRouter.get("/", async (req, res, next) => {
       theme: {
         layout: t.layout,
         homepageSections: [
-          { type: "HeroBanner", props: { title: t.bannerTitle, subtitle: t.bannerSubtitle } },
+          {
+            type: "HeroBanner",
+            props: {
+              title: t.bannerTitle,
+              subtitle: t.bannerSubtitle,
+              bigSlides: Array.isArray(t.bannerSlidesBig) ? t.bannerSlidesBig : [],
+              smallSlides: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
+            },
+          },
           { type: "CategoryList", props: {} },
           { type: "ProductGrid", props: { title: "Шинэ бараа", isNew: true, limit: 8 } },
           { type: "ProductGrid", props: { title: "Хямдралтай", isSale: true, limit: 8 } },
-          { type: "GroceryBento", props: {} },
+          { type: "GroceryBento", props: { tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [] } },
           { type: "BrandList", props: {} },
         ],
       },
+      bannerSlidesBig:   Array.isArray(t.bannerSlidesBig)   ? t.bannerSlidesBig   : [],
+      bannerSlidesSmall: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
+      bentoTiles:        Array.isArray(t.bentoTiles)        ? t.bentoTiles        : [],
       contact: {
         email: t.contactEmail,
         phone: t.contactPhone,
@@ -150,6 +161,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       locations,
       bannerTitle,
       bannerSubtitle,
+      bannerSlidesBig,
+      bannerSlidesSmall,
+      bentoTiles,
       contactEmail,
       contactPhone,
       address,
@@ -168,6 +182,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (locations !== undefined) tenant.locations = locations;
     if (bannerTitle !== undefined) tenant.bannerTitle = bannerTitle;
     if (bannerSubtitle !== undefined) tenant.bannerSubtitle = bannerSubtitle;
+    if (bannerSlidesBig !== undefined) tenant.bannerSlidesBig = bannerSlidesBig;
+    if (bannerSlidesSmall !== undefined) tenant.bannerSlidesSmall = bannerSlidesSmall;
+    if (bentoTiles !== undefined) tenant.bentoTiles = bentoTiles;
     if (contactEmail !== undefined) tenant.contactEmail = contactEmail;
     if (contactPhone !== undefined) tenant.contactPhone = contactPhone;
     if (address !== undefined) tenant.address = address;
