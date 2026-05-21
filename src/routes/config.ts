@@ -92,13 +92,14 @@ configRouter.get("/", async (req, res, next) => {
           { type: "CategoryList", props: {} },
           { type: "ProductGrid", props: { title: "Шинэ бараа", isNew: true, limit: 8 } },
           { type: "ProductGrid", props: { title: "Хямдралтай", isSale: true, limit: 8 } },
-          { type: "GroceryBento", props: { tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [] } },
+          { type: "GroceryBento", props: { tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [], sectionTitle: t.bentoTitle ?? "" } },
           { type: "BrandList", props: {} },
         ],
       },
       bannerSlidesBig:   Array.isArray(t.bannerSlidesBig)   ? t.bannerSlidesBig   : [],
       bannerSlidesSmall: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
       bentoTiles:        Array.isArray(t.bentoTiles)        ? t.bentoTiles        : [],
+      bentoTitle:        t.bentoTitle ?? "",
       contact: {
         email: t.contactEmail,
         phone: t.contactPhone,
@@ -164,6 +165,7 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       bannerSlidesBig,
       bannerSlidesSmall,
       bentoTiles,
+      bentoTitle,
       contactEmail,
       contactPhone,
       address,
@@ -184,7 +186,8 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (bannerSubtitle !== undefined) tenant.bannerSubtitle = bannerSubtitle;
     if (bannerSlidesBig !== undefined) tenant.bannerSlidesBig = bannerSlidesBig;
     if (bannerSlidesSmall !== undefined) tenant.bannerSlidesSmall = bannerSlidesSmall;
-    if (bentoTiles !== undefined) tenant.bentoTiles = bentoTiles;
+    if (bentoTiles  !== undefined) tenant.bentoTiles  = bentoTiles;
+    if (bentoTitle  !== undefined) tenant.bentoTitle  = bentoTitle;
     if (contactEmail !== undefined) tenant.contactEmail = contactEmail;
     if (contactPhone !== undefined) tenant.contactPhone = contactPhone;
     if (address !== undefined) tenant.address = address;

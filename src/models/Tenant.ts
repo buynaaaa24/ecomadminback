@@ -59,6 +59,8 @@ const TenantSchema = new Schema(
     bannerSlidesSmall: { type: Schema.Types.Mixed, default: [] },
     /** Array of 9 × { label, sub, href, image } — GroceryBento tiles */
     bentoTiles:        { type: Schema.Types.Mixed, default: [] },
+    /** Custom heading for the GroceryBento section */
+    bentoTitle:        { type: String, default: "" },
 
     // ── Feature flags ───────────────────────────────────────────────────────────
     features: {
