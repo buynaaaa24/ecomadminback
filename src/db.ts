@@ -34,10 +34,30 @@ export async function getTenantConnection(
     pool.delete(databaseUri);
   }
 
-  const conn = await mongoose.createConnection(databaseUri).asPromise();
-  pool.set(databaseUri, conn);
-  console.log(`[db] Opened tenant connection: ${databaseUri}`);
-  return conn;
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Database connection timeout (5.5s exceeded) to POS database at ${databaseUri}`));
+    }, 5500);
+  });
+
+  try {
+    const connectPromise = mongoose.createConnection(databaseUri, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 15000,
+      family: 4,
+    }).asPromise();
+
+    const conn = await Promise.race([connectPromise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    pool.set(databaseUri, conn);
+    console.log(`[db] Opened tenant connection: ${databaseUri}`);
+    return conn;
+  } catch (error) {
+    if (timeoutId) clearTimeout(timeoutId);
+    throw error;
+  }
 }
 
 /** Close all pooled tenant connections (used for graceful shutdown). */
