@@ -97,27 +97,44 @@ ordersRouter.post("/public", async (req, res, next) => {
           throw new Error(`"${item.name}" бараа олдсонгүй.`);
         }
 
-        if (productDoc.isPosLinked && productDoc.posProductCode && posUri && (posUri.startsWith("mongodb://") || posUri.startsWith("mongodb+srv://"))) {
-          const posConn = await getTenantConnection(posUri);
-          const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
-            code: { type: String, required: true },
-            uldegdel: { type: Number, default: 0 },
-            salbariinId: String,
-            baiguullagiinId: String,
-          }, { collection: "aguulakh" }));
+        if (productDoc.isPosLinked && productDoc.posProductCode && posUri && (posUri.startsWith("mongodb://") || posUri.startsWith("mongodb+srv://") || posUri.startsWith("http://") || posUri.startsWith("https://"))) {
+          if (posUri.startsWith("http://") || posUri.startsWith("https://")) {
+            const decResponse = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-decrement`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code: productDoc.posProductCode,
+                quantity: qty,
+                salbariinId: tenant.posBranchId,
+                baiguullagiinId: tenant.posOrgId,
+              }),
+            });
+            if (!decResponse.ok) {
+              const errBody = await decResponse.json().catch(() => ({}));
+              throw new Error(errBody.error || `"${item.name}" барааны POS үлдэгдэл хүрэлцэхгүй байна.`);
+            }
+          } else {
+            const posConn = await getTenantConnection(posUri);
+            const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+              code: { type: String, required: true },
+              uldegdel: { type: Number, default: 0 },
+              salbariinId: String,
+              baiguullagiinId: String,
+            }, { collection: "aguulakh" }));
 
-          const posFilter: Record<string, any> = { code: productDoc.posProductCode, uldegdel: { $gte: qty } };
-          if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
-          if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+            const posFilter: Record<string, any> = { code: productDoc.posProductCode, uldegdel: { $gte: qty } };
+            if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
+            if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
 
-          const updatedPos = await posModel.findOneAndUpdate(
-            posFilter,
-            { $inc: { uldegdel: -qty } },
-            { new: true }
-          );
+            const updatedPos = await posModel.findOneAndUpdate(
+              posFilter,
+              { $inc: { uldegdel: -qty } },
+              { new: true }
+            );
 
-          if (!updatedPos) {
-            throw new Error(`"${item.name}" барааны POS үлдэгдэл хүрэлцэхгүй байна.`);
+            if (!updatedPos) {
+              throw new Error(`"${item.name}" барааны POS үлдэгдэл хүрэлцэхгүй байна.`);
+            }
           }
 
           // Keep e-commerce catalog stock cached values in sync
@@ -151,19 +168,32 @@ ordersRouter.post("/public", async (req, res, next) => {
       for (const decomp of succeededDecrements) {
         if (decomp.type === "pos") {
           try {
-            const posConn = await getTenantConnection(decomp.posDbUri!);
-            const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
-              code: { type: String, required: true },
-              uldegdel: { type: Number, default: 0 },
-              salbariinId: String,
-              baiguullagiinId: String,
-            }, { collection: "aguulakh" }));
+            if (decomp.posDbUri!.startsWith("http://") || decomp.posDbUri!.startsWith("https://")) {
+              await fetch(`${decomp.posDbUri!.replace(/\/$/, "")}/api/ecom/pos-increment`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  code: decomp.posProductCode,
+                  quantity: decomp.quantity,
+                  salbariinId: decomp.posBranchId,
+                  baiguullagiinId: decomp.posOrgId,
+                }),
+              });
+            } else {
+              const posConn = await getTenantConnection(decomp.posDbUri!);
+              const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+                code: { type: String, required: true },
+                uldegdel: { type: Number, default: 0 },
+                salbariinId: String,
+                baiguullagiinId: String,
+              }, { collection: "aguulakh" }));
 
-            const posFilter: Record<string, any> = { code: decomp.posProductCode };
-            if (decomp.posBranchId) posFilter.salbariinId = decomp.posBranchId;
-            if (decomp.posOrgId) posFilter.baiguullagiinId = decomp.posOrgId;
+              const posFilter: Record<string, any> = { code: decomp.posProductCode };
+              if (decomp.posBranchId) posFilter.salbariinId = decomp.posBranchId;
+              if (decomp.posOrgId) posFilter.baiguullagiinId = decomp.posOrgId;
 
-            await posModel.updateOne(posFilter, { $inc: { uldegdel: decomp.quantity } });
+              await posModel.updateOne(posFilter, { $inc: { uldegdel: decomp.quantity } });
+            }
             await ProductModel.updateOne({ _id: decomp.productId }, { $inc: { stock: decomp.quantity } });
           } catch (posErr) {
             console.error(`[POS-ROLLBACK] Critical error rolling back stock for ${decomp.posProductCode}:`, posErr);
@@ -263,21 +293,34 @@ ordersRouter.patch("/:id", async (req, res, next) => {
         const qty = Number(item.quantity);
         const productDoc = await ProductModel.findById(item.productId).lean<{ isPosLinked?: boolean; posProductCode?: string }>();
 
-        if (productDoc?.isPosLinked && productDoc?.posProductCode && posUri && (posUri.startsWith("mongodb://") || posUri.startsWith("mongodb+srv://"))) {
+        if (productDoc?.isPosLinked && productDoc?.posProductCode && posUri && (posUri.startsWith("mongodb://") || posUri.startsWith("mongodb+srv://") || posUri.startsWith("http://") || posUri.startsWith("https://"))) {
           try {
-            const posConn = await getTenantConnection(posUri);
-            const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
-              code: { type: String, required: true },
-              uldegdel: { type: Number, default: 0 },
-              salbariinId: String,
-              baiguullagiinId: String,
-            }, { collection: "aguulakh" }));
+            if (posUri.startsWith("http://") || posUri.startsWith("https://")) {
+              await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-increment`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  code: productDoc.posProductCode,
+                  quantity: qty,
+                  salbariinId: tenant.posBranchId,
+                  baiguullagiinId: tenant.posOrgId,
+                }),
+              });
+            } else {
+              const posConn = await getTenantConnection(posUri);
+              const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+                code: { type: String, required: true },
+                uldegdel: { type: Number, default: 0 },
+                salbariinId: String,
+                baiguullagiinId: String,
+              }, { collection: "aguulakh" }));
 
-            const posFilter: Record<string, any> = { code: productDoc.posProductCode };
-            if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
-            if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+              const posFilter: Record<string, any> = { code: productDoc.posProductCode };
+              if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
+              if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
 
-            await posModel.updateOne(posFilter, { $inc: { uldegdel: qty } });
+              await posModel.updateOne(posFilter, { $inc: { uldegdel: qty } });
+            }
             await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: qty } });
           } catch (posErr) {
             console.error(`[POS-CANCEL-RECOVERY] Failed to restore POS stock for product code ${productDoc.posProductCode}:`, posErr);

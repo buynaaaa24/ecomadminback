@@ -17,27 +17,48 @@ async function syncPosProductsStock(products: any[], tenantId: string | null | u
   try {
     const tenant = await Tenant.findById(tenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
     const posUri = tenant?.posDbUri;
-    if (!posUri || (!posUri.startsWith("mongodb://") && !posUri.startsWith("mongodb+srv://"))) {
+    if (!posUri || (!posUri.startsWith("mongodb://") && !posUri.startsWith("mongodb+srv://") && !posUri.startsWith("http://") && !posUri.startsWith("https://"))) {
       return products;
     }
 
     const linkedProducts = products.filter((p) => p.isPosLinked && p.posProductCode);
     if (linkedProducts.length === 0) return products;
 
-    const posConn = await getTenantConnection(posUri);
-    const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
-      code: { type: String, required: true },
-      uldegdel: { type: Number, default: 0 },
-      salbariinId: String,
-      baiguullagiinId: String,
-    }, { collection: "aguulakh" }));
-
     const posCodes = linkedProducts.map((p) => p.posProductCode);
-    const posFilter: Record<string, any> = { code: { $in: posCodes } };
-    if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
-    if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+    let posItems: { code: string; uldegdel: number }[] = [];
 
-    const posItems = await posModel.find(posFilter).lean<{ code: string; uldegdel: number }[]>();
+    if (posUri.startsWith("http://") || posUri.startsWith("https://")) {
+      const response = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-stock-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          codes: posCodes,
+          salbariinId: tenant.posBranchId,
+          baiguullagiinId: tenant.posOrgId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`POS API stock sync failed with status ${response.status}`);
+      }
+
+      const resBody = await response.json() as { data?: { code: string; uldegdel: number }[] };
+      posItems = resBody.data || [];
+    } else {
+      const posConn = await getTenantConnection(posUri);
+      const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+        code: { type: String, required: true },
+        uldegdel: { type: Number, default: 0 },
+        salbariinId: String,
+        baiguullagiinId: String,
+      }, { collection: "aguulakh" }));
+
+      const posFilter: Record<string, any> = { code: { $in: posCodes } };
+      if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
+      if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+
+      posItems = await posModel.find(posFilter).lean<{ code: string; uldegdel: number }[]>();
+    }
 
     const stockMap = new Map<string, number>();
     for (const item of posItems) {
@@ -122,29 +143,51 @@ productsRouter.get("/pos-available", async (req, res, next) => {
 
     const tenant = await Tenant.findById(targetTenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
     const posUri = tenant?.posDbUri;
-    if (!posUri || (!posUri.startsWith("mongodb://") && !posUri.startsWith("mongodb+srv://"))) {
+    if (!posUri || (!posUri.startsWith("mongodb://") && !posUri.startsWith("mongodb+srv://") && !posUri.startsWith("http://") && !posUri.startsWith("https://"))) {
       res.status(400).json({ error: "POS database integration is not configured or unconfigured." });
       return;
     }
 
-    const posConn = await getTenantConnection(posUri);
-    const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
-      code: String,
-      barCode: String,
-      ner: String,
-      uldegdel: Number,
-      niitUne: Number,
-      urtugUne: Number,
-      idevkhteiEsekh: Boolean,
-      salbariinId: String,
-      baiguullagiinId: String,
-    }, { collection: "aguulakh" }));
+    let posItems: any[] = [];
 
-    const posFilter: Record<string, any> = { idevkhteiEsekh: { $ne: false } };
-    if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
-    if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+    if (posUri.startsWith("http://") || posUri.startsWith("https://")) {
+      const salbariinId = tenant.posBranchId ?? "";
+      const baiguullagiinId = tenant.posOrgId ?? "";
+      const qs = `salbariinId=${encodeURIComponent(salbariinId)}&baiguullagiinId=${encodeURIComponent(baiguullagiinId)}`;
+      
+      const response = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-available?${qs}`);
+      if (!response.ok) {
+        throw new Error(`POS API returned status ${response.status}`);
+      }
+      const resBody = await response.json() as { data?: any[] };
+      const rawItems = resBody.data || [];
+      posItems = rawItems.map((item) => ({
+        code: item.code,
+        ner: item.ner ?? item.name,
+        barCode: item.barcode ?? item.barCode,
+        uldegdel: item.stock ?? item.uldegdel,
+        niitUne: item.price ?? item.niitUne,
+      }));
+    } else {
+      const posConn = await getTenantConnection(posUri);
+      const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+        code: String,
+        barCode: String,
+        ner: String,
+        uldegdel: Number,
+        niitUne: Number,
+        urtugUne: Number,
+        idevkhteiEsekh: Boolean,
+        salbariinId: String,
+        baiguullagiinId: String,
+      }, { collection: "aguulakh" }));
 
-    const posItems = await posModel.find(posFilter).sort({ ner: 1 }).lean();
+      const posFilter: Record<string, any> = { idevkhteiEsekh: { $ne: false } };
+      if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
+      if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+
+      posItems = await posModel.find(posFilter).sort({ ner: 1 }).lean();
+    }
 
     const { Model } = await resolveProductModel(targetTenantId);
     const alreadyImportedDocs = await Model.find({ isPosLinked: true }).lean<{ posProductCode?: string }[]>();
@@ -184,28 +227,54 @@ productsRouter.post("/pos-import", async (req, res, next) => {
 
     const tenant = await Tenant.findById(targetTenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
     const posUri = tenant?.posDbUri;
-    if (!posUri || (!posUri.startsWith("mongodb://") && !posUri.startsWith("mongodb+srv://"))) {
+    if (!posUri || (!posUri.startsWith("mongodb://") && !posUri.startsWith("mongodb+srv://") && !posUri.startsWith("http://") && !posUri.startsWith("https://"))) {
       res.status(400).json({ error: "POS database integration is not configured or unconfigured." });
       return;
     }
 
-    const posConn = await getTenantConnection(posUri);
-    const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
-      code: String,
-      barCode: String,
-      ner: String,
-      uldegdel: Number,
-      niitUne: Number,
-      urtugUne: Number,
-      salbariinId: String,
-      baiguullagiinId: String,
-    }, { collection: "aguulakh" }));
+    let posItems: any[] = [];
 
-    const posFilter: Record<string, any> = { code: { $in: codes } };
-    if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
-    if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+    if (posUri.startsWith("http://") || posUri.startsWith("https://")) {
+      const salbariinId = tenant.posBranchId ?? "";
+      const baiguullagiinId = tenant.posOrgId ?? "";
+      const qs = `salbariinId=${encodeURIComponent(salbariinId)}&baiguullagiinId=${encodeURIComponent(baiguullagiinId)}`;
+      
+      const response = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-available?${qs}`);
+      if (!response.ok) {
+        throw new Error(`POS API returned status ${response.status}`);
+      }
+      const resBody = await response.json() as { data?: any[] };
+      const allPosItems = resBody.data || [];
+      const codesSet = new Set(codes);
+      posItems = allPosItems
+        .filter((item: any) => codesSet.has(item.code))
+        .map((item: any) => ({
+          code: item.code,
+          ner: item.ner ?? item.name,
+          barCode: item.barcode ?? item.barCode,
+          uldegdel: item.stock ?? item.uldegdel,
+          niitUne: item.price ?? item.niitUne,
+        }));
+    } else {
+      const posConn = await getTenantConnection(posUri);
+      const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+        code: String,
+        barCode: String,
+        ner: String,
+        uldegdel: Number,
+        niitUne: Number,
+        urtugUne: Number,
+        salbariinId: String,
+        baiguullagiinId: String,
+      }, { collection: "aguulakh" }));
 
-    const posItems = await posModel.find(posFilter).lean();
+      const posFilter: Record<string, any> = { code: { $in: codes } };
+      if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
+      if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+
+      posItems = await posModel.find(posFilter).lean();
+    }
+
     if (posItems.length === 0) {
       res.status(400).json({ error: "No matching POS items found for import." });
       return;
