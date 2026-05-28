@@ -71,7 +71,18 @@ ordersRouter.post("/public", async (req, res, next) => {
     }
 
     const { Model: ProductModel } = await resolveProductModel(tenantId);
-    const succeededDecrements: { productId: string; quantity: number }[] = [];
+    const tenant = await Tenant.findById(tenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
+    const posUri = tenant?.posDbUri;
+
+    const succeededDecrements: Array<{
+      productId: string;
+      quantity: number;
+      type: "ecom" | "pos";
+      posProductCode?: string;
+      posDbUri?: string;
+      posBranchId?: string;
+      posOrgId?: string;
+    }> = [];
 
     try {
       // 1. Try atomic stock decrement loop (Saga compensation pattern)
@@ -81,25 +92,88 @@ ordersRouter.post("/public", async (req, res, next) => {
           throw new Error(`Invalid item quantity for "${item.name}"`);
         }
 
-        const updated = await ProductModel.findOneAndUpdate(
-          { _id: item.productId, stock: { $gte: qty } },
-          { $inc: { stock: -qty } },
-          { new: true }
-        );
-
-        if (!updated) {
-          throw new Error(`"${item.name}" барааны үлдэгдэл хүрэлцэхгүй байна.`);
+        const productDoc = await ProductModel.findById(item.productId).lean<{ isPosLinked?: boolean; posProductCode?: string }>();
+        if (!productDoc) {
+          throw new Error(`"${item.name}" бараа олдсонгүй.`);
         }
 
-        succeededDecrements.push({ productId: item.productId, quantity: qty });
+        if (productDoc.isPosLinked && productDoc.posProductCode && posUri && (posUri.startsWith("mongodb://") || posUri.startsWith("mongodb+srv://"))) {
+          const posConn = await getTenantConnection(posUri);
+          const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+            code: { type: String, required: true },
+            uldegdel: { type: Number, default: 0 },
+            salbariinId: String,
+            baiguullagiinId: String,
+          }, { collection: "aguulakh" }));
+
+          const posFilter: Record<string, any> = { code: productDoc.posProductCode, uldegdel: { $gte: qty } };
+          if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
+          if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+
+          const updatedPos = await posModel.findOneAndUpdate(
+            posFilter,
+            { $inc: { uldegdel: -qty } },
+            { new: true }
+          );
+
+          if (!updatedPos) {
+            throw new Error(`"${item.name}" барааны POS үлдэгдэл хүрэлцэхгүй байна.`);
+          }
+
+          // Keep e-commerce catalog stock cached values in sync
+          await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: -qty } });
+
+          succeededDecrements.push({
+            productId: item.productId,
+            quantity: qty,
+            type: "pos",
+            posProductCode: productDoc.posProductCode,
+            posDbUri: posUri,
+            posBranchId: tenant.posBranchId,
+            posOrgId: tenant.posOrgId,
+          });
+        } else {
+          const updated = await ProductModel.findOneAndUpdate(
+            { _id: item.productId, stock: { $gte: qty } },
+            { $inc: { stock: -qty } },
+            { new: true }
+          );
+
+          if (!updated) {
+            throw new Error(`"${item.name}" барааны үлдэгдэл хүрэлцэхгүй байна.`);
+          }
+
+          succeededDecrements.push({ productId: item.productId, quantity: qty, type: "ecom" });
+        }
       }
     } catch (err: any) {
       // Compensate / Rollback previously successful decrements
       for (const decomp of succeededDecrements) {
-        await ProductModel.updateOne(
-          { _id: decomp.productId },
-          { $inc: { stock: decomp.quantity } }
-        );
+        if (decomp.type === "pos") {
+          try {
+            const posConn = await getTenantConnection(decomp.posDbUri!);
+            const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+              code: { type: String, required: true },
+              uldegdel: { type: Number, default: 0 },
+              salbariinId: String,
+              baiguullagiinId: String,
+            }, { collection: "aguulakh" }));
+
+            const posFilter: Record<string, any> = { code: decomp.posProductCode };
+            if (decomp.posBranchId) posFilter.salbariinId = decomp.posBranchId;
+            if (decomp.posOrgId) posFilter.baiguullagiinId = decomp.posOrgId;
+
+            await posModel.updateOne(posFilter, { $inc: { uldegdel: decomp.quantity } });
+            await ProductModel.updateOne({ _id: decomp.productId }, { $inc: { stock: decomp.quantity } });
+          } catch (posErr) {
+            console.error(`[POS-ROLLBACK] Critical error rolling back stock for ${decomp.posProductCode}:`, posErr);
+          }
+        } else {
+          await ProductModel.updateOne(
+            { _id: decomp.productId },
+            { $inc: { stock: decomp.quantity } }
+          );
+        }
       }
       res.status(400).json({ error: err.message });
       return;
@@ -179,13 +253,42 @@ ordersRouter.patch("/:id", async (req, res, next) => {
 
     // Dynamic stock recovery on cancellation
     if (orderStatus === "cancelled" && existingOrder.orderStatus !== "cancelled") {
-      const { Model: ProductModel } = await resolveProductModel(tenantId || existingOrder.tenantId?.toString());
+      const activeTenantId = tenantId || existingOrder.tenantId?.toString();
+      const { Model: ProductModel } = await resolveProductModel(activeTenantId);
       
+      const tenant = await Tenant.findById(activeTenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
+      const posUri = tenant?.posDbUri;
+
       for (const item of existingOrder.items) {
-        await ProductModel.updateOne(
-          { _id: item.productId },
-          { $inc: { stock: Number(item.quantity) } }
-        );
+        const qty = Number(item.quantity);
+        const productDoc = await ProductModel.findById(item.productId).lean<{ isPosLinked?: boolean; posProductCode?: string }>();
+
+        if (productDoc?.isPosLinked && productDoc?.posProductCode && posUri && (posUri.startsWith("mongodb://") || posUri.startsWith("mongodb+srv://"))) {
+          try {
+            const posConn = await getTenantConnection(posUri);
+            const posModel = posConn.models.aguulakh || posConn.model("aguulakh", new mongoose.Schema({
+              code: { type: String, required: true },
+              uldegdel: { type: Number, default: 0 },
+              salbariinId: String,
+              baiguullagiinId: String,
+            }, { collection: "aguulakh" }));
+
+            const posFilter: Record<string, any> = { code: productDoc.posProductCode };
+            if (tenant.posBranchId) posFilter.salbariinId = tenant.posBranchId;
+            if (tenant.posOrgId) posFilter.baiguullagiinId = tenant.posOrgId;
+
+            await posModel.updateOne(posFilter, { $inc: { uldegdel: qty } });
+            await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: qty } });
+          } catch (posErr) {
+            console.error(`[POS-CANCEL-RECOVERY] Failed to restore POS stock for product code ${productDoc.posProductCode}:`, posErr);
+            await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: qty } });
+          }
+        } else {
+          await ProductModel.updateOne(
+            { _id: item.productId },
+            { $inc: { stock: qty } }
+          );
+        }
       }
     }
 

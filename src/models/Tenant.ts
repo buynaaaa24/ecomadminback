@@ -69,6 +69,11 @@ const TenantSchema = new Schema(
       loyaltyProgram: { type: Boolean, default: false },
     },
 
+    // ── POS Integration ──────────────────────────────────────────────────────────
+    posDbUri: { type: String, default: "" },
+    posBranchId: { type: String, default: "" },
+    posOrgId: { type: String, default: "" },
+
     status: { type: String, default: "active" }, // active | inactive
   },
   { timestamps: true },

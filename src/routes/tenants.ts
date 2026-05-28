@@ -6,6 +6,54 @@ import { serializeDocument, serializeLean } from "../util/serialize.js";
 export const tenantsRouter = Router();
 
 tenantsRouter.use(requireAdminAuth);
+
+// ── Standard Admin Settings Endpoints ──────────────────────────────────────────
+tenantsRouter.get("/settings", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    if (a.role !== "superadmin" && !a.tenantId) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    const tenantId = a.role === "superadmin" ? (req.query.tenantId as string) : a.tenantId!.toString();
+    if (!tenantId) {
+      res.status(400).json({ error: "tenantId required" });
+      return;
+    }
+    const doc = await Tenant.findById(tenantId);
+    res.json({ data: serializeDocument(doc) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+tenantsRouter.patch("/settings", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    if (a.role !== "superadmin" && !a.tenantId) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    const tenantId = a.role === "superadmin" ? (req.body.tenantId as string) : a.tenantId!.toString();
+    if (!tenantId) {
+      res.status(400).json({ error: "tenantId required" });
+      return;
+    }
+
+    const updateBody = { ...req.body };
+    if (a.role !== "superadmin") {
+      delete updateBody.databaseUri;
+      delete updateBody.slug;
+      delete updateBody.domain;
+    }
+
+    const doc = await Tenant.findByIdAndUpdate(tenantId, updateBody, { new: true });
+    res.json({ data: serializeDocument(doc) });
+  } catch (e) {
+    next(e);
+  }
+});
+
 tenantsRouter.use(requireRole("superadmin")); // Only superadmin can manage tenants
 
 tenantsRouter.get("/", async (req, res, next) => {

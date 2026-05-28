@@ -23,6 +23,8 @@ export const productSchema = new Schema(
     featured: { type: Boolean, default: false },
     status: { type: String, default: "active" }, // active | inactive | draft
     slug: { type: String, default: "" },
+    isPosLinked: { type: Boolean, default: false },
+    posProductCode: { type: String, default: "" },
   },
   { timestamps: true },
 );
