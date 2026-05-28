@@ -107,6 +107,9 @@ configRouter.get("/", async (req, res, next) => {
       },
       features: t.features,
       locations: Array.isArray(t.locations) ? t.locations : [],
+      posDbUri: (t.posDbUri as string) || "",
+      posBranchId: (t.posBranchId as string) || "",
+      posOrgId: (t.posOrgId as string) || "",
       promo: {
         visible: t.promoVisible ?? true,
         label: t.promoLabel ?? "Хязгаартай",
@@ -175,6 +178,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       promoDiscount,
       promoSubtitle,
       promoHref,
+      posDbUri,
+      posBranchId,
+      posOrgId,
     } = req.body;
 
     if (storeName !== undefined) tenant.name = storeName;
@@ -197,6 +203,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (promoDiscount !== undefined) tenant.promoDiscount = promoDiscount;
     if (promoSubtitle !== undefined) tenant.promoSubtitle = promoSubtitle;
     if (promoHref !== undefined) tenant.promoHref = promoHref;
+    if (posDbUri !== undefined) tenant.posDbUri = posDbUri;
+    if (posBranchId !== undefined) tenant.posBranchId = posBranchId;
+    if (posOrgId !== undefined) tenant.posOrgId = posOrgId;
 
     await tenant.save();
 
