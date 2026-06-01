@@ -27,7 +27,10 @@ const corsOrigins = [...new Set([...envOrigins])];
 
 app.use(
   cors({
-    origin: corsOrigins,
+    origin: (origin, callback) => {
+      // Dynamically echo back the request origin to satisfy browser credentials CORS gates
+      callback(null, true);
+    },
     credentials: true,
   }),
 );
