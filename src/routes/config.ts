@@ -110,6 +110,9 @@ configRouter.get("/", async (req, res, next) => {
       posDbUri: (t.posDbUri as string) || "",
       posBranchId: (t.posBranchId as string) || "",
       posOrgId: (t.posOrgId as string) || "",
+      emDbUri: (t.emDbUri as string) || "",
+      emBranchId: (t.emBranchId as string) || "",
+      emOrgId: (t.emOrgId as string) || "",
       promo: {
         visible: t.promoVisible ?? true,
         label: t.promoLabel ?? "Хязгаартай",
@@ -181,6 +184,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       posDbUri,
       posBranchId,
       posOrgId,
+      emDbUri,
+      emBranchId,
+      emOrgId,
     } = req.body;
 
     if (storeName !== undefined) tenant.name = storeName;
@@ -206,6 +212,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (posDbUri !== undefined) tenant.posDbUri = posDbUri;
     if (posBranchId !== undefined) tenant.posBranchId = posBranchId;
     if (posOrgId !== undefined) tenant.posOrgId = posOrgId;
+    if (emDbUri !== undefined) (tenant as any).emDbUri = emDbUri;
+    if (emBranchId !== undefined) (tenant as any).emBranchId = emBranchId;
+    if (emOrgId !== undefined) (tenant as any).emOrgId = emOrgId;
 
     await tenant.save();
 

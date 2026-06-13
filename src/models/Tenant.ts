@@ -74,6 +74,11 @@ const TenantSchema = new Schema(
     posBranchId: { type: String, default: "" },
     posOrgId: { type: String, default: "" },
 
+    // ── EM Integration ───────────────────────────────────────────────────────────
+    emDbUri: { type: String, default: "" },
+    emBranchId: { type: String, default: "" },
+    emOrgId: { type: String, default: "" },
+
     status: { type: String, default: "active" }, // active | inactive
   },
   { timestamps: true },

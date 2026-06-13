@@ -71,17 +71,20 @@ ordersRouter.post("/public", async (req, res, next) => {
     }
 
     const { Model: ProductModel } = await resolveProductModel(tenantId);
-    const tenant = await Tenant.findById(tenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
+    const tenant = await Tenant.findById(tenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string; emDbUri?: string }>();
     const posUri = tenant?.posDbUri;
+    const emUri = tenant?.emDbUri;
 
     const succeededDecrements: Array<{
       productId: string;
       quantity: number;
-      type: "ecom" | "pos";
+      type: "ecom" | "pos" | "em";
       posProductCode?: string;
       posDbUri?: string;
       posBranchId?: string;
       posOrgId?: string;
+      emProductCode?: string;
+      emDbUri?: string;
     }> = [];
 
     try {
@@ -92,7 +95,7 @@ ordersRouter.post("/public", async (req, res, next) => {
           throw new Error(`Invalid item quantity for "${item.name}"`);
         }
 
-        const productDoc = await ProductModel.findById(item.productId).lean<{ isPosLinked?: boolean; posProductCode?: string }>();
+        const productDoc = await ProductModel.findById(item.productId).lean<{ isPosLinked?: boolean; posProductCode?: string; isEmLinked?: boolean; emProductCode?: string }>();
         if (!productDoc) {
           throw new Error(`"${item.name}" бараа олдсонгүй.`);
         }
@@ -124,6 +127,30 @@ ordersRouter.post("/public", async (req, res, next) => {
             posDbUri: posUri,
             posBranchId: tenant.posBranchId,
             posOrgId: tenant.posOrgId,
+          });
+        } else if (productDoc.isEmLinked && productDoc.emProductCode && emUri && (emUri.startsWith("http://") || emUri.startsWith("https://"))) {
+          const decResponse = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-decrement`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: productDoc.emProductCode,
+              quantity: qty,
+            }),
+          });
+          if (!decResponse.ok) {
+            const errBody = await decResponse.json().catch(() => ({}));
+            throw new Error(errBody.error || `"${item.name}" барааны EM үлдэгдэл хүрэлцэхгүй байна.`);
+          }
+
+          // Keep e-commerce catalog stock cached values in sync
+          await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: -qty } });
+
+          succeededDecrements.push({
+            productId: item.productId,
+            quantity: qty,
+            type: "em",
+            emProductCode: productDoc.emProductCode,
+            emDbUri: emUri,
           });
         } else {
           const updated = await ProductModel.findOneAndUpdate(
@@ -159,6 +186,22 @@ ordersRouter.post("/public", async (req, res, next) => {
             await ProductModel.updateOne({ _id: decomp.productId }, { $inc: { stock: decomp.quantity } });
           } catch (posErr) {
             console.error(`[POS-ROLLBACK] Critical error rolling back stock for ${decomp.posProductCode}:`, posErr);
+          }
+        } else if (decomp.type === "em") {
+          try {
+            if (decomp.emDbUri!.startsWith("http://") || decomp.emDbUri!.startsWith("https://")) {
+              await fetch(`${decomp.emDbUri!.replace(/\/$/, "")}/api/ecom/em-increment`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  code: decomp.emProductCode,
+                  quantity: decomp.quantity,
+                }),
+              });
+            }
+            await ProductModel.updateOne({ _id: decomp.productId }, { $inc: { stock: decomp.quantity } });
+          } catch (emErr) {
+            console.error(`[EM-ROLLBACK] Critical error rolling back stock for ${decomp.emProductCode}:`, emErr);
           }
         } else {
           await ProductModel.updateOne(
@@ -248,12 +291,13 @@ ordersRouter.patch("/:id", async (req, res, next) => {
       const activeTenantId = tenantId || existingOrder.tenantId?.toString();
       const { Model: ProductModel } = await resolveProductModel(activeTenantId);
       
-      const tenant = await Tenant.findById(activeTenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
+      const tenant = await Tenant.findById(activeTenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string; emDbUri?: string }>();
       const posUri = tenant?.posDbUri;
+      const emUri = tenant?.emDbUri;
 
       for (const item of existingOrder.items) {
         const qty = Number(item.quantity);
-        const productDoc = await ProductModel.findById(item.productId).lean<{ isPosLinked?: boolean; posProductCode?: string }>();
+        const productDoc = await ProductModel.findById(item.productId).lean<{ isPosLinked?: boolean; posProductCode?: string; isEmLinked?: boolean; emProductCode?: string }>();
 
         if (productDoc?.isPosLinked && productDoc?.posProductCode && posUri && (posUri.startsWith("http://") || posUri.startsWith("https://"))) {
           try {
@@ -270,6 +314,21 @@ ordersRouter.patch("/:id", async (req, res, next) => {
             await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: qty } });
           } catch (posErr) {
             console.error(`[POS-CANCEL-RECOVERY] Failed to restore POS stock for product code ${productDoc.posProductCode}:`, posErr);
+            await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: qty } });
+          }
+        } else if (productDoc?.isEmLinked && productDoc?.emProductCode && emUri && (emUri.startsWith("http://") || emUri.startsWith("https://"))) {
+          try {
+            await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-increment`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code: productDoc.emProductCode,
+                quantity: qty,
+              }),
+            });
+            await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: qty } });
+          } catch (emErr) {
+            console.error(`[EM-CANCEL-RECOVERY] Failed to restore EM stock for product code ${productDoc.emProductCode}:`, emErr);
             await ProductModel.updateOne({ _id: item.productId }, { $inc: { stock: qty } });
           }
         } else {

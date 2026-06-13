@@ -25,6 +25,8 @@ export const productSchema = new Schema(
     slug: { type: String, default: "" },
     isPosLinked: { type: Boolean, default: false },
     posProductCode: { type: String, default: "" },
+    isEmLinked: { type: Boolean, default: false },
+    emProductCode: { type: String, default: "" },
   },
   { timestamps: true },
 );

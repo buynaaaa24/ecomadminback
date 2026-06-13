@@ -64,6 +64,60 @@ async function syncPosProductsStock(products: any[], tenantId: string | null | u
   }
 }
 
+/**
+ * Enriches product lists with real-time EM stock (uldegdel) levels if EM integration is active.
+ */
+async function syncEmProductsStock(products: any[], tenantId: string | null | undefined): Promise<any[]> {
+  if (!tenantId || !products || products.length === 0) return products;
+
+  try {
+    const tenant = await Tenant.findById(tenantId).lean<{ emDbUri?: string }>();
+    const emUri = tenant?.emDbUri;
+    if (!emUri || (!emUri.startsWith("http://") && !emUri.startsWith("https://"))) {
+      return products;
+    }
+
+    const linkedProducts = products.filter((p) => p.isEmLinked && p.emProductCode);
+    if (linkedProducts.length === 0) return products;
+
+    const emCodes = linkedProducts.map((p) => p.emProductCode);
+    let emItems: { code: string; uldegdel: number }[] = [];
+
+    const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-stock-sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codes: emCodes,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`EM API stock sync failed with status ${response.status}`);
+    }
+
+    const resBody = await response.json() as { data?: { code: string; uldegdel: number }[] };
+    emItems = resBody.data || [];
+
+    const stockMap = new Map<string, number>();
+    for (const item of emItems) {
+      if (item && item.code) {
+        stockMap.set(item.code, item.uldegdel ?? 0);
+      }
+    }
+
+    return products.map((p) => {
+      if (p.isEmLinked && p.emProductCode) {
+        const liveStock = stockMap.get(p.emProductCode) ?? 0;
+        return { ...p, stock: liveStock };
+      }
+      return p;
+    });
+  } catch (err) {
+    console.error("[EM-SYNC] Failed to bulk sync EM stock counts:", err);
+    return products;
+  }
+}
+
 export const productsRouter = Router();
 
 /**
@@ -102,7 +156,8 @@ productsRouter.get("/public", async (req, res, next) => {
     const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
     
     const syncedList = await syncPosProductsStock(list, tenantId);
-    res.json({ data: syncedList.map((t) => serializeLean(t as Record<string, unknown>)) });
+    const syncedListWithEm = await syncEmProductsStock(syncedList, tenantId);
+    res.json({ data: syncedListWithEm.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);
   }
@@ -265,6 +320,136 @@ productsRouter.post("/pos-import", async (req, res, next) => {
   }
 });
 
+// ── EM Catalog Integration Endpoints ──────────────────────────────────────────
+productsRouter.get("/em-available", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const targetTenantId = a.role === "superadmin"
+      ? (req.query.tenantId as string | undefined)
+      : a.tenantId ?? undefined;
+
+    if (!targetTenantId) {
+      res.status(400).json({ error: "tenantId required" });
+      return;
+    }
+
+    const tenant = await Tenant.findById(targetTenantId).lean<{ emDbUri?: string }>();
+    const emUri = tenant?.emDbUri;
+    if (!emUri || (!emUri.startsWith("http://") && !emUri.startsWith("https://"))) {
+      res.status(400).json({ error: "EM database integration is not configured." });
+      return;
+    }
+
+    const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-available`);
+    if (!response.ok) {
+      throw new Error(`EM API returned status ${response.status}`);
+    }
+    const resBody = await response.json() as { data?: any[] };
+    const emItems = resBody.data || [];
+
+    const { Model } = await resolveProductModel(targetTenantId);
+    const alreadyImportedDocs = await Model.find({ isEmLinked: true }).lean<{ emProductCode?: string }[]>();
+    const importedCodes = new Set(alreadyImportedDocs.map((x) => x.emProductCode));
+
+    const mapped = emItems.map((item: any) => ({
+      code: item.code,
+      barcode: item.barcode ?? "",
+      name: item.name,
+      stock: item.stock ?? 0,
+      price: item.price ?? 0,
+      alreadyImported: importedCodes.has(item.code),
+    }));
+
+    res.json({ data: mapped });
+  } catch (e) {
+    next(e);
+  }
+});
+
+productsRouter.post("/em-import", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const { codes } = req.body;
+    const targetTenantId = a.role === "superadmin"
+      ? (req.body.tenantId as string | undefined)
+      : a.tenantId ?? undefined;
+
+    if (!targetTenantId) {
+      res.status(400).json({ error: "tenantId required" });
+      return;
+    }
+    if (!codes || !Array.isArray(codes) || codes.length === 0) {
+      res.status(400).json({ error: "codes array required" });
+      return;
+    }
+
+    const tenant = await Tenant.findById(targetTenantId).lean<{ emDbUri?: string }>();
+    const emUri = tenant?.emDbUri;
+    if (!emUri || (!emUri.startsWith("http://") && !emUri.startsWith("https://"))) {
+      res.status(400).json({ error: "EM database integration is not configured." });
+      return;
+    }
+
+    const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-available`);
+    if (!response.ok) {
+      throw new Error(`EM API returned status ${response.status}`);
+    }
+    const resBody = await response.json() as { data?: any[] };
+    const allEmItems = resBody.data || [];
+    const codesSet = new Set(codes);
+    const emItems = allEmItems.filter((item: any) => codesSet.has(item.code));
+
+    if (emItems.length === 0) {
+      res.status(400).json({ error: "No matching EM items found for import." });
+      return;
+    }
+
+    const { Model, useTenantFilter } = await resolveProductModel(targetTenantId);
+    const importedResults = [];
+
+    const slugify = (text: string) => {
+      return text
+        .toString()
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^\w\-]+/g, "")
+        .replace(/\-\-+/g, "-")
+        .replace(/^-+/, "")
+        .replace(/-+$/, "");
+    };
+
+    for (const item of emItems as any[]) {
+      const price = item.price || 0;
+      const cleanSlug = `${slugify(item.name || "imported")}-${item.code}`;
+
+      const mappedBody: Record<string, any> = {
+        name: item.name,
+        price: price,
+        stock: item.stock ?? 0,
+        isEmLinked: true,
+        emProductCode: item.code,
+        slug: cleanSlug,
+        status: "active",
+      };
+
+      if (useTenantFilter) {
+        mappedBody.tenantId = new mongoose.Types.ObjectId(targetTenantId);
+      }
+
+      const doc = await Model.findOneAndUpdate(
+        { emProductCode: item.code },
+        mappedBody,
+        { upsert: true, new: true }
+      );
+      importedResults.push(doc);
+    }
+
+    res.status(201).json({ data: importedResults.map((doc) => serializeDocument(doc)) });
+  } catch (e) {
+    next(e);
+  }
+});
+
 productsRouter.get("/", async (req, res, next) => {
   try {
     const a = req.admin!;
@@ -280,7 +465,8 @@ productsRouter.get("/", async (req, res, next) => {
 
     const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
     const syncedList = await syncPosProductsStock(list, targetTenantId);
-    res.json({ data: syncedList.map((t) => serializeLean(t as Record<string, unknown>)) });
+    const syncedListWithEm = await syncEmProductsStock(syncedList, targetTenantId);
+    res.json({ data: syncedListWithEm.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);
   }
