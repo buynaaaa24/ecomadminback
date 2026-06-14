@@ -15,6 +15,7 @@ import { adminUsersRouter } from "./routes/adminUsers.js";
 import { productsRouter } from "./routes/products.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { ordersRouter } from "./routes/orders.js";
+import { qpayRouter } from "./routes/qpay.js";
 import { usersRouter } from "./routes/users.js";
 
 const app = express();
@@ -48,6 +49,7 @@ app.get("/", (_req, res) => {
 // Storefront public endpoints
 app.use("/api/config", configRouter);
 app.use("/api/orders", ordersRouter);
+app.use("/api/qpay", qpayRouter);
 app.use("/api/users", usersRouter);
 
 app.post("/api/upload", upload.single("file"), (req, res) => {
