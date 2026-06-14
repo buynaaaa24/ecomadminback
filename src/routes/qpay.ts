@@ -64,22 +64,50 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res, next) =
       bank_account_name: t.qpayBankAccountName || "",
     };
 
-    console.log("[QPay registerMerchant] tenantId:", String(tenant._id), "body:", JSON.stringify(body));
+    console.log("[QPay registerMerchant] tenantId:", String(tenant._id));
+    console.log("[QPay registerMerchant] body:", JSON.stringify(body, null, 2));
 
-    const khariu = await qpayKhariltsagchUusgey(body);
-    console.log("[QPay registerMerchant] khariu:", JSON.stringify(khariu));
+    let khariu: any;
+    try {
+      khariu = await qpayKhariltsagchUusgey(body);
+    } catch (innerErr: any) {
+      console.error("[QPay registerMerchant] THREW:", innerErr);
+      console.error("[QPay registerMerchant] typeof:", typeof innerErr);
+      console.error("[QPay registerMerchant] keys:", Object.keys(innerErr ?? {}));
+      console.error("[QPay registerMerchant] JSON:", JSON.stringify(innerErr, Object.getOwnPropertyNames(innerErr)));
+      res.status(500).json({
+        success: false,
+        error: {
+          message: innerErr?.message ?? String(innerErr),
+          code: innerErr?.code,
+          status: innerErr?.response?.status,
+          responseData: innerErr?.response?.data,
+          stack: innerErr?.stack,
+          raw: JSON.parse(JSON.stringify(innerErr, Object.getOwnPropertyNames(innerErr))),
+        },
+      });
+      return;
+    }
+
+    console.log("[QPay registerMerchant] khariu:", JSON.stringify(khariu, null, 2));
+
+    // Package may return an error object instead of throwing
+    if (khariu && (khariu.aldaa || khariu.error || khariu.success === false)) {
+      console.error("[QPay registerMerchant] package returned error object:", khariu);
+      res.status(500).json({ success: false, error: khariu });
+      return;
+    }
 
     res.json({ success: true, data: khariu });
   } catch (e: any) {
-    console.error("[QPay registerMerchant] error:", e?.message, e?.stack);
-    // Return full error detail so caller can diagnose — not swallowed by generic handler
+    console.error("[QPay registerMerchant] outer catch:", e);
+    console.error("[QPay registerMerchant] outer JSON:", JSON.stringify(e, Object.getOwnPropertyNames(e ?? {})));
     res.status(500).json({
       success: false,
       error: {
-        message: e?.message ?? "Unknown error",
-        stack: process.env.NODE_ENV !== "production" ? e?.stack : undefined,
-        response: e?.response?.data ?? undefined,
-        status: e?.response?.status ?? undefined,
+        message: e?.message ?? String(e),
+        stack: e?.stack,
+        raw: JSON.parse(JSON.stringify(e, Object.getOwnPropertyNames(e ?? {}))),
       },
     });
   }
