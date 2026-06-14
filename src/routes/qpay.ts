@@ -5,12 +5,18 @@ import { requireAdminAuth } from "../middleware/adminAuth.js";
 
 // quickqpaypack is a CommonJS package — use createRequire in ESM
 const require = createRequire(import.meta.url);
-const {
-  QuickQpayObject,
-  QpayKhariltsagch,
-  qpayKhariltsagchUusgey,
-  qpayGargaya,
-} = require("quickqpaypack");
+console.log("[QPay] Loading quickqpaypack...");
+let QuickQpayObject: any, QpayKhariltsagch: any, qpayKhariltsagchUusgey: any, qpayGargaya: any;
+try {
+  const pkg = require("quickqpaypack");
+  QuickQpayObject = pkg.QuickQpayObject;
+  QpayKhariltsagch = pkg.QpayKhariltsagch;
+  qpayKhariltsagchUusgey = pkg.qpayKhariltsagchUusgey;
+  qpayGargaya = pkg.qpayGargaya;
+  console.log("[QPay] quickqpaypack loaded. exports:", Object.keys(pkg));
+} catch (e: any) {
+  console.error("[QPay] FAILED to load quickqpaypack:", e.message);
+}
 
 export const qpayRouter = Router();
 
@@ -33,8 +39,11 @@ async function resolveTenant(req: any) {
 // Registers the tenant as a QPay merchant using the saved QPay fields.
 // Calls qpayKhariltsagchUusgey from quickqpaypack (mirrors posBackv2).
 qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res, next) => {
+  console.log("[QPay step 1] register-merchant hit, admin:", JSON.stringify(req.admin));
   try {
+    console.log("[QPay step 2] resolving tenant, body.tenantId:", req.body.tenantId);
     const tenant = await resolveTenant(req);
+    console.log("[QPay step 3] tenant:", tenant ? String((tenant as any)._id) : "NULL");
     if (!tenant) {
       res.status(404).json({ error: { code: "NOT_FOUND", message: "Tenant not found" } });
       return;
@@ -44,10 +53,8 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res, next) =
 
     const body: Record<string, unknown> = {
       baiguullagiinId: String(tenant._id),
-      // Credentials: per-tenant override → env fallback
       username: t.qpayUsername || process.env.QPAY_USERNAME || "",
       password: t.qpayPassword || process.env.QPAY_PASSWORD || "",
-      // Merchant registration fields
       invoice_code:      t.qpayInvoiceCode   || "",
       fee_type:          t.qpayFeeType        || "CHARGE_PAYER",
       merchant_name:     t.qpayMerchantName   || "",
@@ -58,20 +65,18 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res, next) =
       city:              t.qpayCity           || "",
       district:          t.qpayDistrict       || "",
       mcc_code:          t.qpayMccCode        || "",
-      // Bank account
       bank_name:         t.qpayBankName       || "",
       bank_account:      t.qpayBankAccount    || "",
       bank_account_name: t.qpayBankAccountName || "",
     };
 
-    // Pre-flight: log env vars the package depends on
-    console.log("[QPay registerMerchant] ENV CHECK:", {
+    console.log("[QPay step 4] ENV:", {
       QPAY_MERCHANT_SERVER: process.env.QPAY_MERCHANT_SERVER ?? "NOT SET",
       QPAY_USERNAME: process.env.QPAY_USERNAME ? "SET" : "NOT SET",
       QPAY_PASSWORD: process.env.QPAY_PASSWORD ? "SET" : "NOT SET",
     });
-    console.log("[QPay registerMerchant] tenantId:", String(tenant._id));
-    console.log("[QPay registerMerchant] body:", JSON.stringify(body, null, 2));
+    console.log("[QPay step 5] body:", JSON.stringify(body, null, 2));
+    console.log("[QPay step 6] qpayKhariltsagchUusgey typeof:", typeof qpayKhariltsagchUusgey);
 
     let khariu: any;
     try {
