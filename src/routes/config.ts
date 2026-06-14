@@ -113,6 +113,9 @@ configRouter.get("/", async (req, res, next) => {
       emDbUri: (t.emDbUri as string) || "",
       emBranchId: (t.emBranchId as string) || "",
       emOrgId: (t.emOrgId as string) || "",
+      register: (t.register as string) || "",
+      registerTurul: (t.registerTurul as string) || "Байгууллага",
+      branches: Array.isArray(t.branches) ? t.branches : [],
       promo: {
         visible: t.promoVisible ?? true,
         label: t.promoLabel ?? "Хязгаартай",
@@ -187,6 +190,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       emDbUri,
       emBranchId,
       emOrgId,
+      register,
+      registerTurul,
+      branches,
     } = req.body;
 
     if (storeName !== undefined) tenant.name = storeName;
@@ -215,6 +221,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (emDbUri !== undefined) (tenant as any).emDbUri = emDbUri;
     if (emBranchId !== undefined) (tenant as any).emBranchId = emBranchId;
     if (emOrgId !== undefined) (tenant as any).emOrgId = emOrgId;
+    if (register !== undefined) (tenant as any).register = register;
+    if (registerTurul !== undefined) (tenant as any).registerTurul = registerTurul;
+    if (branches !== undefined) (tenant as any).branches = branches;
 
     await tenant.save();
 

@@ -82,6 +82,17 @@ const TenantSchema = new Schema(
     register: { type: String, default: "" },
     registerTurul: { type: String, enum: ["Байгууллага", "Хувь хүн"], default: "Байгууллага" },
 
+    branches: [
+      {
+        id:          { type: String, default: "" },
+        name:        { type: String, default: "" },
+        register:    { type: String, default: "" },
+        systemTurul: { type: String, default: "" },
+        systemuud:   [{ type: String }],
+        isEnabled:   { type: Boolean, default: true },
+      }
+    ],
+
     status: { type: String, default: "active" }, // active | inactive
   },
   { timestamps: true },
