@@ -114,10 +114,24 @@ configRouter.get("/", async (req, res, next) => {
       emBranchId: (t.emBranchId as string) || "",
       emOrgId: (t.emOrgId as string) || "",
       qpay: {
-        username: (t.qpayUsername as string) || "",
-        password: (t.qpayPassword as string) || "",
+        merchantServer: process.env.QPAY_MERCHANT_SERVER || "https://quickqr.qpay.mn/",
+        server: process.env.QPAY_SERVER || "https://merchant.qpay.mn/",
+        testServer: process.env.QPAY_TEST_SERVER || "https://merchant-sandbox.qpay.mn/",
+        username: (t.qpayUsername as string) || process.env.QPAY_USERNAME || "",
+        password: (t.qpayPassword as string) || process.env.QPAY_PASSWORD || "",
         invoiceCode: (t.qpayInvoiceCode as string) || "",
-        merchantId: (t.qpayMerchantId as string) || "",
+        feeType: (t.qpayFeeType as string) || "CHARGE_PAYER",
+        merchantName: (t.qpayMerchantName as string) || "",
+        register: (t.qpayRegister as string) || "",
+        phone: (t.qpayPhone as string) || "",
+        email: (t.qpayEmail as string) || "",
+        address: (t.qpayAddress as string) || "",
+        city: (t.qpayCity as string) || "",
+        district: (t.qpayDistrict as string) || "",
+        mccCode: (t.qpayMccCode as string) || "",
+        bankName: (t.qpayBankName as string) || "",
+        bankAccount: (t.qpayBankAccount as string) || "",
+        bankAccountName: (t.qpayBankAccountName as string) || "",
       },
       register: (t.register as string) || "",
       registerTurul: (t.registerTurul as string) || "Байгууллага",
@@ -199,7 +213,18 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       qpayUsername,
       qpayPassword,
       qpayInvoiceCode,
-      qpayMerchantId,
+      qpayFeeType,
+      qpayMerchantName,
+      qpayRegister,
+      qpayPhone,
+      qpayEmail,
+      qpayAddress,
+      qpayCity,
+      qpayDistrict,
+      qpayMccCode,
+      qpayBankName,
+      qpayBankAccount,
+      qpayBankAccountName,
       register,
       registerTurul,
       branches,
@@ -234,7 +259,18 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (qpayUsername !== undefined) (tenant as any).qpayUsername = qpayUsername;
     if (qpayPassword !== undefined) (tenant as any).qpayPassword = qpayPassword;
     if (qpayInvoiceCode !== undefined) (tenant as any).qpayInvoiceCode = qpayInvoiceCode;
-    if (qpayMerchantId !== undefined) (tenant as any).qpayMerchantId = qpayMerchantId;
+    if (qpayFeeType !== undefined) (tenant as any).qpayFeeType = qpayFeeType;
+    if (qpayMerchantName !== undefined) (tenant as any).qpayMerchantName = qpayMerchantName;
+    if (qpayRegister !== undefined) (tenant as any).qpayRegister = qpayRegister;
+    if (qpayPhone !== undefined) (tenant as any).qpayPhone = qpayPhone;
+    if (qpayEmail !== undefined) (tenant as any).qpayEmail = qpayEmail;
+    if (qpayAddress !== undefined) (tenant as any).qpayAddress = qpayAddress;
+    if (qpayCity !== undefined) (tenant as any).qpayCity = qpayCity;
+    if (qpayDistrict !== undefined) (tenant as any).qpayDistrict = qpayDistrict;
+    if (qpayMccCode !== undefined) (tenant as any).qpayMccCode = qpayMccCode;
+    if (qpayBankName !== undefined) (tenant as any).qpayBankName = qpayBankName;
+    if (qpayBankAccount !== undefined) (tenant as any).qpayBankAccount = qpayBankAccount;
+    if (qpayBankAccountName !== undefined) (tenant as any).qpayBankAccountName = qpayBankAccountName;
     if (register !== undefined) (tenant as any).register = register;
     if (registerTurul !== undefined) (tenant as any).registerTurul = registerTurul;
     if (branches !== undefined) (tenant as any).branches = branches;

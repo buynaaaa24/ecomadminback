@@ -80,10 +80,25 @@ const TenantSchema = new Schema(
     emOrgId: { type: String, default: "" },
 
     // ── QPay Payment Gateway ──────────────────────────────────────────────────────
-    qpayUsername: { type: String, default: "" },
-    qpayPassword: { type: String, default: "" },
-    qpayInvoiceCode: { type: String, default: "" },
-    qpayMerchantId: { type: String, default: "" },
+    // Global defaults (QPAY_MERCHANT_SERVER / QPAY_USERNAME / QPAY_PASSWORD) live in .env.
+    // Per-tenant values override the global credentials when set:
+    qpayUsername:         { type: String, default: "" },
+    qpayPassword:         { type: String, default: "" },
+    qpayInvoiceCode:      { type: String, default: "" }, // invoice code from QPay portal
+    qpayFeeType:          { type: String, enum: ["CHARGE_PAYER", "CHARGE_MERCHANT"], default: "CHARGE_PAYER" }, // required
+    // Merchant identity
+    qpayMerchantName:     { type: String, default: "" },
+    qpayRegister:         { type: String, default: "" },
+    qpayPhone:            { type: String, default: "" },
+    qpayEmail:            { type: String, default: "" },
+    qpayAddress:          { type: String, default: "" },
+    qpayCity:             { type: String, default: "" },
+    qpayDistrict:         { type: String, default: "" },
+    qpayMccCode:          { type: String, default: "" },
+    // Bank account
+    qpayBankName:         { type: String, default: "" },
+    qpayBankAccount:      { type: String, default: "" },
+    qpayBankAccountName:  { type: String, default: "" },
 
     register: { type: String, default: "" },
     registerTurul: { type: String, enum: ["Байгууллага", "Хувь хүн"], default: "Байгууллага" },
