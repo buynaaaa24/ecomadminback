@@ -64,6 +64,12 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res, next) =
       bank_account_name: t.qpayBankAccountName || "",
     };
 
+    // Pre-flight: log env vars the package depends on
+    console.log("[QPay registerMerchant] ENV CHECK:", {
+      QPAY_MERCHANT_SERVER: process.env.QPAY_MERCHANT_SERVER ?? "NOT SET",
+      QPAY_USERNAME: process.env.QPAY_USERNAME ? "SET" : "NOT SET",
+      QPAY_PASSWORD: process.env.QPAY_PASSWORD ? "SET" : "NOT SET",
+    });
     console.log("[QPay registerMerchant] tenantId:", String(tenant._id));
     console.log("[QPay registerMerchant] body:", JSON.stringify(body, null, 2));
 
