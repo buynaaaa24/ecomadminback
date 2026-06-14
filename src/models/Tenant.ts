@@ -79,6 +79,12 @@ const TenantSchema = new Schema(
     emBranchId: { type: String, default: "" },
     emOrgId: { type: String, default: "" },
 
+    // ── QPay Payment Gateway ──────────────────────────────────────────────────────
+    qpayUsername: { type: String, default: "" },
+    qpayPassword: { type: String, default: "" },
+    qpayInvoiceCode: { type: String, default: "" },
+    qpayMerchantId: { type: String, default: "" },
+
     register: { type: String, default: "" },
     registerTurul: { type: String, enum: ["Байгууллага", "Хувь хүн"], default: "Байгууллага" },
 

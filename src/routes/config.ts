@@ -113,6 +113,12 @@ configRouter.get("/", async (req, res, next) => {
       emDbUri: (t.emDbUri as string) || "",
       emBranchId: (t.emBranchId as string) || "",
       emOrgId: (t.emOrgId as string) || "",
+      qpay: {
+        username: (t.qpayUsername as string) || "",
+        password: (t.qpayPassword as string) || "",
+        invoiceCode: (t.qpayInvoiceCode as string) || "",
+        merchantId: (t.qpayMerchantId as string) || "",
+      },
       register: (t.register as string) || "",
       registerTurul: (t.registerTurul as string) || "Байгууллага",
       branches: Array.isArray(t.branches) ? t.branches : [],
@@ -190,6 +196,10 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       emDbUri,
       emBranchId,
       emOrgId,
+      qpayUsername,
+      qpayPassword,
+      qpayInvoiceCode,
+      qpayMerchantId,
       register,
       registerTurul,
       branches,
@@ -221,6 +231,10 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (emDbUri !== undefined) (tenant as any).emDbUri = emDbUri;
     if (emBranchId !== undefined) (tenant as any).emBranchId = emBranchId;
     if (emOrgId !== undefined) (tenant as any).emOrgId = emOrgId;
+    if (qpayUsername !== undefined) (tenant as any).qpayUsername = qpayUsername;
+    if (qpayPassword !== undefined) (tenant as any).qpayPassword = qpayPassword;
+    if (qpayInvoiceCode !== undefined) (tenant as any).qpayInvoiceCode = qpayInvoiceCode;
+    if (qpayMerchantId !== undefined) (tenant as any).qpayMerchantId = qpayMerchantId;
     if (register !== undefined) (tenant as any).register = register;
     if (registerTurul !== undefined) (tenant as any).registerTurul = registerTurul;
     if (branches !== undefined) (tenant as any).branches = branches;
