@@ -14,6 +14,8 @@ export const categorySchema = new Schema(
   { timestamps: true },
 );
 
+categorySchema.index({ tenantId: 1, status: 1, name: 1 });
+
 export function getCategoryModel(conn: mongoose.Connection) {
   return conn.models.Category ?? conn.model("Category", categorySchema);
 }

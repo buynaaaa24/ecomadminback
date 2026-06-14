@@ -31,6 +31,10 @@ export const productSchema = new Schema(
   { timestamps: true },
 );
 
+productSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
+productSchema.index({ tenantId: 1, slug: 1 });
+productSchema.index({ tenantId: 1, categoryId: 1, status: 1, createdAt: -1 });
+
 /**
  * Returns the Product model bound to a specific mongoose.Connection.
  * Mongoose caches models per connection, so this is safe to call repeatedly.

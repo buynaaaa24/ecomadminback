@@ -32,6 +32,8 @@ export const orderSchema = new Schema(
   { timestamps: true },
 );
 
+orderSchema.index({ tenantId: 1, createdAt: -1 });
+
 /**
  * Returns the Order model bound to a specific mongoose.Connection.
  */

@@ -13,6 +13,8 @@ const CategorySchema = new Schema(
   { timestamps: true },
 );
 
+CategorySchema.index({ tenantId: 1, status: 1, name: 1 });
+
 export type CategoryDoc = mongoose.InferSchemaType<typeof CategorySchema>;
 export const Category =
   mongoose.models.Category ?? mongoose.model("Category", CategorySchema);
