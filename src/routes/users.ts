@@ -1,0 +1,311 @@
+import { Router } from "express";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
+import { CustomerUser } from "../models/CustomerUser.js";
+import { Tenant } from "../models/Tenant.js";
+import { Order } from "../models/Order.js";
+import { getOrderModel } from "../models/orderSchema.js";
+import { getTenantConnection } from "../db.js";
+import { serializeLean } from "../util/serialize.js";
+
+export const usersRouter = Router();
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function accessSecret(): string {
+  return process.env.CUSTOMER_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "customer-secret";
+}
+
+function refreshSecret(): string {
+  return process.env.CUSTOMER_REFRESH_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "customer-refresh";
+}
+
+function signAccess(userId: string): string {
+  return jwt.sign({ sub: userId, type: "customer" }, accessSecret(), { expiresIn: "15m" });
+}
+
+function signRefresh(userId: string): string {
+  return jwt.sign({ sub: userId, type: "customer_refresh" }, refreshSecret(), { expiresIn: "7d" });
+}
+
+function verifyAccess(token: string): { sub: string } | null {
+  try {
+    const p = jwt.verify(token, accessSecret()) as jwt.JwtPayload;
+    if (p.type !== "customer") return null;
+    return { sub: String(p.sub) };
+  } catch {
+    return null;
+  }
+}
+
+/** Extract Bearer token from Authorization header */
+function extractBearer(authHeader?: string): string | null {
+  const m = authHeader?.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] ?? null;
+}
+
+/** Resolve the tenantId from the request (X-Tenant-Id header or query param). */
+function resolveTenantId(req: any): string | null {
+  const h = req.headers["x-tenant-id"] as string | undefined;
+  const q = req.query?.tenantId as string | undefined;
+  return h ?? q ?? null;
+}
+
+/** Resolve the Order model for a tenant (dedicated DB or central). */
+async function resolveOrderModel(tenantId: string | null) {
+  if (tenantId) {
+    const tenant = await Tenant.findById(tenantId).lean<{ databaseUri?: string }>();
+    const uri = tenant?.databaseUri;
+    if (uri && (uri.startsWith("mongodb://") || uri.startsWith("mongodb+srv://"))) {
+      const conn = await getTenantConnection(uri);
+      return { Model: getOrderModel(conn), useTenantFilter: false };
+    }
+  }
+  return { Model: Order, useTenantFilter: true };
+}
+
+// ── POST /api/users/register ─────────────────────────────────────────────────
+
+usersRouter.post("/register", async (req, res, next) => {
+  try {
+    const { email, phone, password, firstName, lastName } = req.body as {
+      email?: string;
+      phone?: string;
+      password?: string;
+      firstName?: string;
+      lastName?: string;
+    };
+
+    if (!email || !password || !firstName || !lastName) {
+      res.status(400).json({ error: "email, password, firstName, lastName шаардлагатай" });
+      return;
+    }
+    if (password.length < 6) {
+      res.status(400).json({ error: "Нууц үг хамгийн багадаа 6 тэмдэгт байх ёстой" });
+      return;
+    }
+
+    const tenantId = resolveTenantId(req);
+    const emailLower = email.trim().toLowerCase();
+
+    const existing = await CustomerUser.findOne({
+      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      email: emailLower,
+    });
+    if (existing) {
+      res.status(409).json({ error: "Энэ и-мэйл хаягаар бүртгэл аль хэдийн байна" });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const refreshToken = signRefresh("tmp");
+
+    const user = await CustomerUser.create({
+      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      email: emailLower,
+      phone: phone ?? "",
+      passwordHash,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      refreshTokens: [],
+    });
+
+    const accessToken = signAccess(String(user._id));
+    const newRefresh = signRefresh(String(user._id));
+
+    await CustomerUser.findByIdAndUpdate(user._id, { $push: { refreshTokens: newRefresh } });
+
+    res.status(201).json({
+      accessToken,
+      refreshToken: newRefresh,
+      user: {
+        id: String(user._id),
+        email: user.email,
+        phone: user.phone,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/users/login ────────────────────────────────────────────────────
+
+usersRouter.post("/login", async (req, res, next) => {
+  try {
+    const { email, phone, password } = req.body as {
+      email?: string;
+      phone?: string;
+      password?: string;
+    };
+
+    if (!password || (!email && !phone)) {
+      res.status(400).json({ error: "email эсвэл phone болон password шаардлагатай" });
+      return;
+    }
+
+    const tenantId = resolveTenantId(req);
+    const filter: Record<string, unknown> = {
+      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+    };
+
+    if (email) {
+      filter.email = email.trim().toLowerCase();
+    } else {
+      filter.phone = phone!.trim();
+    }
+
+    const user = await CustomerUser.findOne(filter);
+    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+      res.status(401).json({ error: "И-мэйл/утас эсвэл нууц үг буруу байна" });
+      return;
+    }
+
+    if (user.status !== "active") {
+      res.status(403).json({ error: "Бүртгэл түр хаагдсан байна" });
+      return;
+    }
+
+    const accessToken = signAccess(String(user._id));
+    const newRefresh = signRefresh(String(user._id));
+
+    // Keep max 5 refresh tokens per user
+    const tokens = (user.refreshTokens ?? []).slice(-4);
+    tokens.push(newRefresh);
+    await CustomerUser.findByIdAndUpdate(user._id, {
+      refreshTokens: tokens,
+      lastLogin: new Date(),
+    });
+
+    res.json({
+      accessToken,
+      refreshToken: newRefresh,
+      user: {
+        id: String(user._id),
+        email: user.email,
+        phone: user.phone,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/users/refresh ──────────────────────────────────────────────────
+
+usersRouter.post("/refresh", async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body as { refreshToken?: string };
+    if (!refreshToken) {
+      res.status(401).json({ error: "refreshToken шаардлагатай" });
+      return;
+    }
+
+    let payload: jwt.JwtPayload;
+    try {
+      payload = jwt.verify(refreshToken, refreshSecret()) as jwt.JwtPayload;
+      if (payload.type !== "customer_refresh") throw new Error();
+    } catch {
+      res.status(401).json({ error: "Refresh token хүчингүй эсвэл хугацаа дууссан" });
+      return;
+    }
+
+    const user = await CustomerUser.findById(payload.sub);
+    if (!user || !(user.refreshTokens ?? []).includes(refreshToken)) {
+      res.status(401).json({ error: "Refresh token олдсонгүй" });
+      return;
+    }
+
+    const accessToken = signAccess(String(user._id));
+    const newRefresh = signRefresh(String(user._id));
+
+    const tokens = (user.refreshTokens ?? [])
+      .filter((t: string) => t !== refreshToken)
+      .slice(-4);
+    tokens.push(newRefresh);
+    await CustomerUser.findByIdAndUpdate(user._id, { refreshTokens: tokens });
+
+    res.json({ accessToken, refreshToken: newRefresh });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── GET /api/users/me ────────────────────────────────────────────────────────
+
+usersRouter.get("/me", async (req, res, next) => {
+  try {
+    const token = extractBearer(req.headers.authorization);
+    if (!token) {
+      res.status(401).json({ error: "Нэвтрэх шаардлагатай" });
+      return;
+    }
+    const payload = verifyAccess(token);
+    if (!payload) {
+      res.status(401).json({ error: "Token хүчингүй" });
+      return;
+    }
+    const user = await CustomerUser.findById(payload.sub).lean();
+    if (!user) {
+      res.status(404).json({ error: "Хэрэглэгч олдсонгүй" });
+      return;
+    }
+    res.json({
+      id: String((user as any)._id),
+      email: user.email,
+      phone: user.phone,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── GET /api/users/orders ────────────────────────────────────────────────────
+
+usersRouter.get("/orders", async (req, res, next) => {
+  try {
+    const token = extractBearer(req.headers.authorization);
+    if (!token) {
+      res.status(401).json({ error: "Нэвтрэх шаардлагатай" });
+      return;
+    }
+    const payload = verifyAccess(token);
+    if (!payload) {
+      res.status(401).json({ error: "Token хүчингүй" });
+      return;
+    }
+
+    const user = await CustomerUser.findById(payload.sub).lean<{
+      _id: unknown; email: string; phone: string; tenantId?: unknown;
+    }>();
+    if (!user) {
+      res.status(404).json({ error: "Хэрэглэгч олдсонгүй" });
+      return;
+    }
+
+    const tenantId = user.tenantId ? String(user.tenantId) : null;
+    const { Model: OrderModel, useTenantFilter } = await resolveOrderModel(tenantId);
+
+    const filter: Record<string, unknown> = {
+      $or: [
+        { "customerInfo.email": user.email },
+        ...(user.phone ? [{ "customerInfo.phone": user.phone }] : []),
+      ],
+    };
+    if (useTenantFilter && tenantId) {
+      filter.tenantId = new mongoose.Types.ObjectId(tenantId);
+    }
+
+    const orders = await OrderModel.find(filter).sort({ createdAt: -1 }).limit(50).lean();
+    res.json({ data: orders.map((o) => serializeLean(o as Record<string, unknown>)) });
+  } catch (e) {
+    next(e);
+  }
+});

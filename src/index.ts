@@ -15,6 +15,7 @@ import { adminUsersRouter } from "./routes/adminUsers.js";
 import { productsRouter } from "./routes/products.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { ordersRouter } from "./routes/orders.js";
+import { usersRouter } from "./routes/users.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 8000;
@@ -47,6 +48,7 @@ app.get("/", (_req, res) => {
 // Storefront public endpoints
 app.use("/api/config", configRouter);
 app.use("/api/orders", ordersRouter);
+app.use("/api/users", usersRouter);
 
 app.post("/api/upload", upload.single("file"), (req, res) => {
   if (!req.file) {
