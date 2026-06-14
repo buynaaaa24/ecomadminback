@@ -203,6 +203,7 @@ productsRouter.get("/pos-available", async (req, res, next) => {
       barCode: item.barcode ?? item.barCode,
       uldegdel: item.stock ?? item.uldegdel,
       niitUne: item.price ?? item.niitUne,
+      image: item.image ?? "",
     }));
 
     const { Model } = await resolveProductModel(targetTenantId);
@@ -215,6 +216,7 @@ productsRouter.get("/pos-available", async (req, res, next) => {
       name: item.ner,
       stock: item.uldegdel ?? 0,
       price: item.niitUne ?? item.urtugUne ?? 0,
+      image: item.image ? `${posUri.replace(/\/$/, "")}${item.image}` : "",
       alreadyImported: importedCodes.has(item.code),
     }));
 
@@ -267,6 +269,7 @@ productsRouter.post("/pos-import", async (req, res, next) => {
         barCode: item.barcode ?? item.barCode,
         uldegdel: item.stock ?? item.uldegdel,
         niitUne: item.price ?? item.niitUne,
+        image: item.image ?? "",
       }));
 
     if (posItems.length === 0) {
@@ -291,6 +294,7 @@ productsRouter.post("/pos-import", async (req, res, next) => {
     for (const item of posItems as any[]) {
       const price = item.niitUne || item.urtugUne || 0;
       const cleanSlug = `${slugify(item.ner || "imported")}-${item.code}`;
+      const imageUrl = item.image ? `${posUri.replace(/\/$/, "")}${item.image}` : "";
 
       const mappedBody: Record<string, any> = {
         name: item.ner,
@@ -301,6 +305,10 @@ productsRouter.post("/pos-import", async (req, res, next) => {
         slug: cleanSlug,
         status: "active",
       };
+
+      if (imageUrl) {
+        mappedBody.images = [imageUrl];
+      }
 
       if (useTenantFilter) {
         mappedBody.tenantId = new mongoose.Types.ObjectId(targetTenantId);
@@ -346,17 +354,26 @@ productsRouter.get("/em-available", async (req, res, next) => {
     }
     const resBody = await response.json() as { data?: any[] };
     const emItems = resBody.data || [];
+    const mappedEmItems = emItems.map((item) => ({
+      code: item.code,
+      name: item.ner ?? item.name,
+      barcode: item.barcode ?? item.barCode,
+      stock: item.stock ?? item.uldegdel,
+      price: item.price ?? item.niitUne,
+      image: item.image ?? "",
+    }));
 
     const { Model } = await resolveProductModel(targetTenantId);
     const alreadyImportedDocs = await Model.find({ isEmLinked: true }).lean<{ emProductCode?: string }[]>();
     const importedCodes = new Set(alreadyImportedDocs.map((x) => x.emProductCode));
 
-    const mapped = emItems.map((item: any) => ({
+    const mapped = mappedEmItems.map((item: any) => ({
       code: item.code,
       barcode: item.barcode ?? "",
       name: item.name,
       stock: item.stock ?? 0,
       price: item.price ?? 0,
+      image: item.image ? `${emUri.replace(/\/$/, "")}${item.image}` : "",
       alreadyImported: importedCodes.has(item.code),
     }));
 
@@ -397,7 +414,16 @@ productsRouter.post("/em-import", async (req, res, next) => {
     const resBody = await response.json() as { data?: any[] };
     const allEmItems = resBody.data || [];
     const codesSet = new Set(codes);
-    const emItems = allEmItems.filter((item: any) => codesSet.has(item.code));
+    const emItems = allEmItems
+      .filter((item: any) => codesSet.has(item.code))
+      .map((item: any) => ({
+        code: item.code,
+        name: item.ner ?? item.name,
+        barcode: item.barcode ?? item.barCode,
+        stock: item.stock ?? item.uldegdel,
+        price: item.price ?? item.niitUne,
+        image: item.image ?? "",
+      }));
 
     if (emItems.length === 0) {
       res.status(400).json({ error: "No matching EM items found for import." });
@@ -421,6 +447,7 @@ productsRouter.post("/em-import", async (req, res, next) => {
     for (const item of emItems as any[]) {
       const price = item.price || 0;
       const cleanSlug = `${slugify(item.name || "imported")}-${item.code}`;
+      const imageUrl = item.image ? `${emUri.replace(/\/$/, "")}${item.image}` : "";
 
       const mappedBody: Record<string, any> = {
         name: item.name,
@@ -431,6 +458,10 @@ productsRouter.post("/em-import", async (req, res, next) => {
         slug: cleanSlug,
         status: "active",
       };
+
+      if (imageUrl) {
+        mappedBody.images = [imageUrl];
+      }
 
       if (useTenantFilter) {
         mappedBody.tenantId = new mongoose.Types.ObjectId(targetTenantId);
