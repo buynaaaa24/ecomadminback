@@ -79,6 +79,9 @@ const TenantSchema = new Schema(
     emBranchId: { type: String, default: "" },
     emOrgId: { type: String, default: "" },
 
+    register: { type: String, default: "" },
+    registerTurul: { type: String, enum: ["Байгууллага", "Хувь хүн"], default: "Байгууллага" },
+
     status: { type: String, default: "active" }, // active | inactive
   },
   { timestamps: true },
