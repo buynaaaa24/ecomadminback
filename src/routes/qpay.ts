@@ -72,7 +72,16 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res, next) =
     res.json({ success: true, data: khariu });
   } catch (e: any) {
     console.error("[QPay registerMerchant] error:", e?.message, e?.stack);
-    next(e);
+    // Return full error detail so caller can diagnose — not swallowed by generic handler
+    res.status(500).json({
+      success: false,
+      error: {
+        message: e?.message ?? "Unknown error",
+        stack: process.env.NODE_ENV !== "production" ? e?.stack : undefined,
+        response: e?.response?.data ?? undefined,
+        status: e?.response?.status ?? undefined,
+      },
+    });
   }
 });
 
