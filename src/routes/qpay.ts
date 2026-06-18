@@ -42,6 +42,8 @@ async function resolveTenant(req: any) {
 }
 
 async function resolveTenantByHost(req: any) {
+  const tenantId = req.query.tenantId as string | undefined;
+  if (tenantId) return Tenant.findById(tenantId);
   const slug = req.query.tenant as string | undefined;
   if (slug) return Tenant.findOne({ slug: slug.toLowerCase().trim(), status: "active" });
   const host = ((req.headers["x-tenant-host"] ?? req.headers.host ?? "") as string).split(":")[0].toLowerCase();
