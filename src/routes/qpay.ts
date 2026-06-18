@@ -56,29 +56,37 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res) => {
     if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
     const t = tenant as any;
 
+    const isPerson = t.registerTurul === "Хувь хүн";
+    const urn = isPerson ? "v2/merchant/person" : "v2/merchant/company";
+
     const token = await qpayToken();
+
+    const merchantBody: Record<string, unknown> = {
+      type:            isPerson ? "PERSON" : "COMPANY",
+      register_number: t.qpayRegister  ?? "",
+      mcc_code:        t.qpayMccCode   ?? "",
+      city:            t.qpayCity      ?? "",
+      district:        t.qpayDistrict  ?? "",
+      address:         t.qpayAddress   ?? "",
+      phone:           t.qpayPhone     ?? "",
+      email:           t.qpayEmail     ?? "",
+    };
+
+    if (isPerson) {
+      merchantBody.first_name   = t.qpayMerchantName ?? "";
+      merchantBody.last_name    = t.qpayMerchantName ?? "";
+      merchantBody.business_name = t.qpayMerchantName ?? "";
+    } else {
+      merchantBody.owner_first_name = t.qpayMerchantName ?? "";
+      merchantBody.owner_last_name  = t.qpayMerchantName ?? "";
+      merchantBody.company_name     = t.qpayMerchantName ?? "";
+      merchantBody.name             = t.qpayMerchantName ?? "";
+    }
+
     const { data } = await axios.post(
-      `${QPAY_BASE}/v2/merchant`,
-      {
-        merchant_type:   "MERCHANT",
-        business_type:   t.registerTurul === "Хувь хүн" ? "INDIVIDUAL" : "COMPANY",
-        name:            t.qpayMerchantName   ?? "",
-        register_number: t.qpayRegister       ?? "",
-        phone:           t.qpayPhone          ?? "",
-        email:           t.qpayEmail          ?? "",
-        address:         t.qpayAddress        ?? "",
-        city:            t.qpayCity           ?? "",
-        district:        t.qpayDistrict       ?? "",
-        mcc_code:        t.qpayMccCode        ?? "",
-        fee_type:        t.qpayFeeType        ?? "CHARGE_PAYER",
-        bank_accounts: [{
-          account_bank_code: t.qpayBankName        ?? "",
-          account_number:    t.qpayBankAccount     ?? "",
-          account_name:      t.qpayBankAccountName ?? "",
-          is_default:        true,
-        }],
-      },
-      { headers: { Authorization: `Bearer ${token}` } },
+      `${QPAY_BASE}/${urn}`,
+      JSON.stringify(merchantBody),
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     );
 
     res.json({ success: true, data });
