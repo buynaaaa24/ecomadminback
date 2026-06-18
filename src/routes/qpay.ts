@@ -17,8 +17,8 @@ async function qpayToken(): Promise<string> {
   const creds = Buffer.from(`${process.env.QPAY_USERNAME}:${process.env.QPAY_PASSWORD}`).toString("base64");
   const { data } = await axios.post(
     `${QPAY_BASE}/v2/auth/token`,
-    {},
-    { headers: { Authorization: `Basic ${creds}` } },
+    JSON.stringify({ terminal_id: "95000059" }),
+    { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
   );
   if (!data?.access_token) throw new Error(`QPay auth failed: ${JSON.stringify(data)}`);
   return data.access_token;
