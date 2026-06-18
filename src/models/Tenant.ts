@@ -87,6 +87,7 @@ const TenantSchema = new Schema(
     qpayInvoiceCode:      { type: String, default: "" }, // invoice code from QPay portal
     qpayFeeType:          { type: String, enum: ["CHARGE_PAYER", "CHARGE_MERCHANT"], default: "CHARGE_PAYER" }, // required
     // Merchant identity
+    qpayMerchantId:       { type: String, default: "" }, // assigned by QPay after registration
     qpayMerchantName:     { type: String, default: "" },
     qpayRegister:         { type: String, default: "" },
     qpayPhone:            { type: String, default: "" },

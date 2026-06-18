@@ -89,6 +89,7 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res) => {
       { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     );
 
+    await (tenant as any).updateOne({ qpayMerchantId: data.id });
     res.json({ success: true, data });
   } catch (e: any) {
     const err = e?.response?.data;
