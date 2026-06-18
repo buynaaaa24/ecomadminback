@@ -52,22 +52,35 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res, next) =
     const t = tenant as any;
 
     const body: Record<string, unknown> = {
+      // Required by quickqpaypack internals
       baiguullagiinId: String(tenant._id),
-      username: t.qpayUsername || process.env.QPAY_USERNAME || "",
-      password: t.qpayPassword || process.env.QPAY_PASSWORD || "",
-      invoice_code:      t.qpayInvoiceCode   || "",
-      fee_type:          t.qpayFeeType        || "CHARGE_PAYER",
-      merchant_name:     t.qpayMerchantName   || "",
-      register_number:   t.qpayRegister       || "",
-      phone:             t.qpayPhone          || "",
-      email:             t.qpayEmail          || "",
-      address:           t.qpayAddress        || "",
-      city:              t.qpayCity           || "",
-      district:          t.qpayDistrict       || "",
-      mcc_code:          t.qpayMccCode        || "",
-      bank_name:         t.qpayBankName       || "",
-      bank_account:      t.qpayBankAccount    || "",
-      bank_account_name: t.qpayBankAccountName || "",
+      // Merchant identity — field names must match what posBackv2 sends to the package
+      type:            "COMPANY",
+      name:            t.qpayMerchantName   || "",
+      register_number: t.qpayRegister       || "",
+      register:        t.qpayRegister       || "",
+      phone:           t.qpayPhone          || "",
+      email:           t.qpayEmail          || "",
+      address:         t.qpayAddress        || "",
+      city:            t.qpayCity           || "",
+      district:        t.qpayDistrict       || "",
+      mcc_code:        t.qpayMccCode        || "",
+      fee_type:        t.qpayFeeType        || "CHARGE_PAYER",
+      // Bank account as salbaruud array (format expected by QPay)
+      salbaruud: [
+        {
+          salbariinId:  String(tenant._id),
+          salbariinNer: t.qpayMerchantName || "",
+          bank_accounts: [
+            {
+              account_bank_name:   t.qpayBankName        || "",
+              account_number:      t.qpayBankAccount     || "",
+              account_name:        t.qpayBankAccountName || "",
+              is_default:          true,
+            },
+          ],
+        },
+      ],
     };
 
     console.log("[QPay step 4] ENV:", {
