@@ -1,11 +1,18 @@
 import { Router } from "express";
-import { createRequire } from "module";
 import axios from "axios";
+import mongoose from "mongoose";
 import { Tenant } from "../models/Tenant.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 
-const require = createRequire(import.meta.url);
-const { QuickQpayObject, qpayGargaya } = require("quickqpaypackv2");
+const QpayInvoiceSchema = new mongoose.Schema({
+  tenantId:          String,
+  zakhialgiinDugaar: { type: String, index: true },
+  invoiceId:         String,
+  qpayData:          mongoose.Schema.Types.Mixed,
+  paid:              { type: Boolean, default: false },
+  createdAt:         { type: Date, default: Date.now },
+});
+const QpayInvoice = mongoose.models.QpayInvoice ?? mongoose.model("QpayInvoice", QpayInvoiceSchema);
 
 const QPAY_BASE = (process.env.QPAY_MERCHANT_SERVER ?? "https://quickqr.qpay.mn").replace(/\/$/, "");
 
@@ -121,33 +128,44 @@ qpayRouter.post("/invoice", async (req, res, next) => {
   try {
     const tenant = await resolveTenantByHost(req);
     if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
+    const t = tenant as any;
 
-    const { zakhialgiinDugaar, dun, tailbar, salbariinId } = req.body;
+    const { zakhialgiinDugaar, dun, tailbar } = req.body;
     if (!zakhialgiinDugaar || !dun) {
-      res.status(400).json({ error: "zakhialgiinDugaar and dun are required" });
-      return;
+      res.status(400).json({ error: "zakhialgiinDugaar and dun are required" }); return;
+    }
+    if (!t.qpayMerchantId) {
+      res.status(400).json({ error: "QPay merchant not registered for this tenant" }); return;
     }
 
     const host = process.env.SERVER_HOST ?? "103.236.194.106";
     const port = process.env.PORT ?? "8000";
     const callback_url = `http://${host}:${port}/api/qpay/callback/${String(tenant._id)}/${zakhialgiinDugaar}`;
 
-    const khariu = await qpayGargaya(
-      {
-        baiguullagiinId:  String(tenant._id),
-        salbariinId:      salbariinId ?? String(tenant._id),
-        zakhialgiinDugaar,
-        dun,
-        tailbar:          tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
-        username:         process.env.QPAY_USERNAME ?? "",
-        password:         process.env.QPAY_PASSWORD ?? "",
-      },
-      callback_url,
+    const token = await qpayToken();
+    const { data } = await axios.post(
+      `${QPAY_BASE}/v2/invoice`,
+      JSON.stringify({
+        merchant_id:   t.qpayMerchantId,
+        amount:        dun,
+        currency:      "MNT",
+        description:   tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+        callback_url,
+      }),
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     );
-    res.json({ success: true, data: khariu });
+
+    await QpayInvoice.findOneAndUpdate(
+      { zakhialgiinDugaar },
+      { tenantId: String(tenant._id), invoiceId: data.id, qpayData: data, paid: false },
+      { upsert: true, new: true },
+    );
+
+    res.json({ success: true, data });
   } catch (e: any) {
-    console.error("[QPay invoice]", e?.message);
-    next(e);
+    const err = e?.response?.data;
+    console.error("[QPay invoice]", err ?? e?.message);
+    res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
   }
 });
 
@@ -156,13 +174,8 @@ qpayRouter.post("/invoice", async (req, res, next) => {
 qpayRouter.get("/callback/:tenantId/:zakhialgiinDugaar", async (req, res, next) => {
   try {
     const { zakhialgiinDugaar } = req.params;
-    const obj = await QuickQpayObject.findOne({ zakhialgiinDugaar });
-    if (obj) {
-      obj.tulsunEsekh = true;
-      obj.isNew = false;
-      await obj.save();
-      (req as any).app.get("socketio")?.emit("qpay" + zakhialgiinDugaar);
-    }
+    await QpayInvoice.findOneAndUpdate({ zakhialgiinDugaar }, { paid: true });
+    (req as any).app.get("socketio")?.emit("qpay" + zakhialgiinDugaar);
     res.sendStatus(200);
   } catch (e) {
     next(e);
@@ -173,12 +186,8 @@ qpayRouter.get("/callback/:tenantId/:zakhialgiinDugaar", async (req, res, next) 
 
 qpayRouter.post("/check", async (req, res, next) => {
   try {
-    const { zakhialgiinDugaar, baiguullagiinId, salbariinId } = req.body;
-    const obj = await QuickQpayObject.findOne({
-      zakhialgiinDugaar,
-      ...(baiguullagiinId && { baiguullagiinId }),
-      ...(salbariinId && { salbariinId }),
-    });
+    const { zakhialgiinDugaar } = req.body;
+    const obj = await QpayInvoice.findOne({ zakhialgiinDugaar }).lean();
     res.json({ data: obj ?? null });
   } catch (e) {
     next(e);
