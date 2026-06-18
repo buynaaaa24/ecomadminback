@@ -148,10 +148,11 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     const { data } = await axios.post(
       `${QPAY_BASE}/v2/invoice`,
       JSON.stringify({
-        merchant_id:   t.qpayMerchantId,
-        amount:        dun,
-        currency:      "MNT",
-        description:   tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+        invoice_code:          t.qpayInvoiceCode ?? process.env.QPAY_INVOICE_CODE ?? "",
+        sender_invoice_no:     zakhialgiinDugaar,
+        invoice_receiver_code: "terminal",
+        invoice_description:   tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+        amount:                dun,
         callback_url,
       }),
       { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
