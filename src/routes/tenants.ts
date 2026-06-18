@@ -67,7 +67,25 @@ tenantsRouter.get("/", async (req, res, next) => {
 
 tenantsRouter.post("/", async (req, res, next) => {
   try {
-    const doc = await Tenant.create(req.body);
+    const body = { ...req.body };
+    // Auto-build databaseUri with auth if a plain local URI was provided without credentials
+    if (body.databaseUri && body.databaseUri.startsWith("mongodb://127.0.0.1") && !body.databaseUri.includes("@")) {
+      const dbName = body.slug ? `tenant_${body.slug}` : body.databaseUri.split("/").pop();
+      const mongoUri = process.env.MONGODB_URI ?? "";
+      const match = mongoUri.match(/mongodb:\/\/([^:]+):([^@]+)@/);
+      if (match) {
+        body.databaseUri = `mongodb://${match[1]}:${match[2]}@127.0.0.1:27017/${dbName}?authSource=admin`;
+      }
+    }
+    // If no databaseUri provided, build one from slug
+    if (!body.databaseUri && body.slug) {
+      const mongoUri = process.env.MONGODB_URI ?? "";
+      const match = mongoUri.match(/mongodb:\/\/([^:]+):([^@]+)@/);
+      if (match) {
+        body.databaseUri = `mongodb://${match[1]}:${match[2]}@127.0.0.1:27017/tenant_${body.slug}?authSource=admin`;
+      }
+    }
+    const doc = await Tenant.create(body);
     res.status(201).json({ data: serializeDocument(doc) });
   } catch (e) {
     next(e);
