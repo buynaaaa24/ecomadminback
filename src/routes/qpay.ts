@@ -1,10 +1,14 @@
 import { Router } from "express";
 import axios from "axios";
 import mongoose from "mongoose";
+import { createRequire } from "module";
 import { Tenant } from "../models/Tenant.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 import fs from "fs";
 import path from "path";
+
+const require = createRequire(import.meta.url);
+const { qpayGargaya, qpayShalgay, qpayKhariltsagchUusgey, QuickQpayObject, QpayKhariltsagch } = require("quickqpaypackv2");
 
 function logToFile(message: string, data?: any) {
   try {
@@ -24,39 +28,24 @@ function logToFile(message: string, data?: any) {
 }
 
 function getBankCode(bankName: string): string {
-  if (!bankName) return "050000"; // Default to Khan Bank if empty
-  
+  if (!bankName) return "050000";
   const name = bankName.toLowerCase().trim();
-  
-  // Khan Bank
   if (name.includes("хаан") || name.includes("khan")) return "050000";
-  // Golomt Bank
   if (name.includes("голомт") || name.includes("golomt")) return "150000";
-  // Trade & Development Bank (TDB / ХХБ)
   if (name.includes("худалдаа") || name.includes("tdb") || name.includes("ххб")) return "040000";
-  // State Bank
   if (name.includes("төрийн") || name.includes("төр") || name.includes("state")) return "340000";
-  // Xac Bank
   if (name.includes("хас") || name.includes("xac") || name.includes("has")) return "220000";
-  // Capitron
   if (name.includes("капитрон") || name.includes("capitron")) return "300000";
-  // Bogd
   if (name.includes("богд") || name.includes("bogd")) return "320000";
-  // Arig
   if (name.includes("ариг") || name.includes("arig")) return "210000";
-  // Chinggis Khaan
   if (name.includes("чингис") || name.includes("chinggis")) return "260000";
-  // Trans Bank
   if (name.includes("тээвэр") || name.includes("trans")) return "380000";
-  // M Bank
   if (name.includes("м банк") || name === "m bank" || name === "m" || name.includes("mbank")) return "020000";
-
-  // If it's already a 6-digit numeric string, return it directly
   if (/^\d{6}$/.test(bankName)) return bankName;
-
-  return "050000"; // default fallback
+  return "050000";
 }
 
+// ── Local invoice tracker ─────────────────────────────────────────────────────
 const QpayInvoiceSchema = new mongoose.Schema({
   tenantId:          String,
   zakhialgiinDugaar: { type: String, index: true },
@@ -78,31 +67,15 @@ async function qpayToken(customUser?: string, customPass?: string, customTermina
   const username = customUser || process.env.QPAY_USERNAME;
   const password = customPass || process.env.QPAY_PASSWORD;
   const terminalId = customTerminal || process.env.QPAY_TERMINAL_ID || "95000059";
-  
-  logToFile(`Attempting token generation. Username: ${username ? '***' + username.slice(-4) : 'undefined'}, Terminal ID: ${terminalId}`);
-  
-  if (!username || !password) {
-    logToFile("QPay credentials (username/password) are missing.");
-    throw new Error("QPay credentials (username/password) are missing.");
-  }
-  
+  if (!username || !password) throw new Error("QPay credentials missing.");
   const creds = Buffer.from(`${username}:${password}`).toString("base64");
-  try {
-    const { data } = await axios.post(
-      `${QPAY_BASE}/v2/auth/token`,
-      JSON.stringify({ terminal_id: terminalId }),
-      { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
-    );
-    if (!data?.access_token) {
-      logToFile("QPay auth failed: Access token not returned.", data);
-      throw new Error(`QPay auth failed: Access token not returned. Response: ${JSON.stringify(data)}`);
-    }
-    logToFile("Token successfully retrieved");
-    return data.access_token;
-  } catch (error: any) {
-    logToFile("QPay Auth Error", error?.response?.data || error?.message);
-    throw error;
-  }
+  const { data } = await axios.post(
+    `${QPAY_BASE}/v2/auth/token`,
+    JSON.stringify({ terminal_id: terminalId }),
+    { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
+  );
+  if (!data?.access_token) throw new Error("QPay auth failed");
+  return data.access_token;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -139,45 +112,63 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res) => {
     if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
     const t = tenant as any;
 
+    // Build khariltsagch object for quickqpaypackv2
     const isPerson = t.registerTurul === "Хувь хүн";
-    const urn = isPerson ? "v2/merchant/person" : "v2/merchant/company";
-
-    const token = await qpayToken(t.qpayUsername, t.qpayPassword, t.qpayTerminalId);
-
-    const merchantBody: Record<string, unknown> = {
+    const khariltsagch: any = {
       type:            isPerson ? "PERSON" : "COMPANY",
-      register_number: t.qpayRegister  ?? "",
-      mcc_code:        t.qpayMccCode   ?? "",
-      city:            t.qpayCity      ?? "",
-      district:        t.qpayDistrict  ?? "",
-      address:         t.qpayAddress   ?? "",
-      phone:           t.qpayPhone     ?? "",
-      email:           t.qpayEmail     ?? "",
+      register_number: t.qpayRegister ?? "",
+      baiguullagiinId: String(tenant._id),
+      mcc_code:        t.qpayMccCode ?? "5311",
+      city:            t.qpayCity ?? "",
+      district:        t.qpayDistrict ?? "",
+      address:         t.qpayAddress ?? "",
+      phone:           t.qpayPhone ?? "",
+      email:           t.qpayEmail ?? "",
+      salbaruud: [
+        {
+          salbariinId:      String(tenant._id),
+          salbariinNer:     t.name || t.qpayMerchantName || "",
+          qpayShimtgelTurul: t.qpayFeeType === "CHARGE_MERCHANT",
+          bank_accounts: [
+            {
+              account_bank_code: getBankCode(t.qpayBankName),
+              account_number:    t.qpayBankAccount,
+              account_name:      t.qpayBankAccountName || t.name,
+              is_default:        true,
+              qpayShimtgelTurul: t.qpayFeeType === "CHARGE_MERCHANT",
+            }
+          ]
+        }
+      ]
     };
 
     if (isPerson) {
-      merchantBody.first_name   = t.qpayMerchantName ?? "";
-      merchantBody.last_name    = t.qpayMerchantName ?? "";
-      merchantBody.business_name = t.qpayMerchantName ?? "";
+      khariltsagch.first_name    = t.qpayMerchantName ?? "";
+      khariltsagch.last_name     = t.qpayMerchantName ?? "";
+      khariltsagch.business_name = t.qpayMerchantName ?? "";
     } else {
-      merchantBody.owner_first_name = t.qpayMerchantName ?? "";
-      merchantBody.owner_last_name  = t.qpayMerchantName ?? "";
-      merchantBody.company_name     = t.qpayMerchantName ?? "";
-      merchantBody.name             = t.qpayMerchantName ?? "";
+      khariltsagch.name              = t.qpayMerchantName ?? "";
+      khariltsagch.owner_first_name  = t.qpayMerchantName ?? "";
+      khariltsagch.owner_last_name   = t.qpayMerchantName ?? "";
+      khariltsagch.company_name      = t.qpayMerchantName ?? "";
     }
 
-    const { data } = await axios.post(
-      `${QPAY_BASE}/${urn}`,
-      JSON.stringify(merchantBody),
-      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
-    );
+    const result = await qpayKhariltsagchUusgey(khariltsagch, { kholbolt: mongoose });
 
-    await (tenant as any).updateOne({ qpayMerchantId: data.id });
-    res.json({ success: true, data });
+    if (result === "Amjilttai") {
+      // Read back the saved merchant to get merchant_id
+      const QpayKhariltsagchModel = QpayKhariltsagch({ kholbolt: mongoose });
+      const saved = await QpayKhariltsagchModel.findOne({ baiguullagiinId: String(tenant._id) });
+      if (saved?.merchant_id) {
+        await (tenant as any).updateOne({ qpayMerchantId: saved.merchant_id });
+      }
+      res.json({ success: true, data: saved });
+    } else {
+      res.status(400).json({ success: false, error: result });
+    }
   } catch (e: any) {
-    const err = e?.response?.data;
-    console.error("[QPay register-merchant]", err ?? e?.message);
-    res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
+    console.error("[QPay register-merchant]", e?.message);
+    res.status(500).json({ success: false, error: e?.message });
   }
 });
 
@@ -210,69 +201,50 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     if (!zakhialgiinDugaar || !dun) {
       res.status(400).json({ error: "zakhialgiinDugaar and dun are required" }); return;
     }
-    if (!t.qpayMerchantId) {
-      res.status(400).json({ error: "QPay merchant_id is not configured for this tenant" }); return;
-    }
-    if (!t.qpayBankAccount) {
-      res.status(400).json({ error: "QPay bank account is not configured for this tenant" }); return;
+
+    const amount = Number(dun);
+    if (!amount || amount <= 0) {
+      res.status(400).json({ error: "Invalid amount" }); return;
     }
 
     const host = process.env.SERVER_HOST ?? "103.236.194.106";
     const port = process.env.PORT ?? "8000";
     const callback_url = `http://${host}:${port}/api/qpay/callback/${String(tenant._id)}/${zakhialgiinDugaar}`;
 
-    const token = await qpayToken(t.qpayUsername, t.qpayPassword, t.qpayTerminalId);
-    const amount = Number(dun);
-    if (!amount || amount <= 0) {
-      res.status(400).json({ error: "Invalid amount" }); return;
-    }
-    const invoicePayload = {
-      merchant_id:           t.qpayMerchantId,
-      amount,
-      currency:              "MNT",
-      description:           tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
-      mcc_code:              t.qpayMccCode || "5311",
-      callback_url,
-      bank_accounts: [
-        {
-          account_bank_code: getBankCode(t.qpayBankName),
-          account_number:    t.qpayBankAccount,
-          account_name:      t.qpayBankAccountName || t.name,
-          is_default:        true,
-        }
-      ]
+    // Use quickqpaypackv2 qpayGargaya — same as udirdlagaBack
+    const body: any = {
+      baiguullagiinId: String(tenant._id),
+      barilgiinId:     String(tenant._id), // salbariinId = tenantId
+      dun:             amount,
+      tulbur:          amount,
+      tailbar:         tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+      zakhialgiinDugaar,
+      dansniiDugaar:   t.qpayBankAccount || undefined,
     };
 
-    logToFile("Preparing request to QPay API", {
-      url: `${QPAY_BASE}/v2/invoice`,
-      payload: invoicePayload,
-      tenantId: String(tenant._id),
-      merchantId: t.qpayMerchantId,
-    });
+    logToFile("Calling qpayGargaya", { body, callback_url });
 
-    const { data } = await axios.post(
-      `${QPAY_BASE}/v2/invoice`,
-      JSON.stringify(invoicePayload),
-      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
-    );
+    const khariu = await qpayGargaya(body, callback_url, { kholbolt: mongoose });
 
-    logToFile("QPay API response success", data);
+    if (typeof khariu === "string") {
+      // Error string returned
+      res.status(400).json({ success: false, error: khariu });
+      return;
+    }
 
+    logToFile("qpayGargaya success", khariu);
+
+    // Also save to our local tracker
     await QpayInvoice.findOneAndUpdate(
       { zakhialgiinDugaar },
-      { tenantId: String(tenant._id), invoiceId: data.id ?? data.invoice_id, qpayData: data, paid: false, amount },
+      { tenantId: String(tenant._id), invoiceId: khariu.id, qpayData: khariu, paid: false, amount },
       { upsert: true, new: true },
     );
 
-    res.json({ success: true, data });
+    res.json({ success: true, data: khariu });
   } catch (e: any) {
-    const err = e?.response?.data;
-    logToFile("QPay invoice error", {
-      message: e?.message,
-      status: e?.response?.status,
-      response: err,
-    });
-    res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
+    logToFile("QPay invoice error", { message: e?.message });
+    res.status(500).json({ success: false, error: e?.message });
   }
 });
 
@@ -280,35 +252,20 @@ qpayRouter.post("/invoice", async (req, res, next) => {
 
 qpayRouter.get("/callback/:tenantId/:zakhialgiinDugaar", async (req, res, next) => {
   try {
-    const { tenantId, zakhialgiinDugaar } = req.params;
-    const invoice = await QpayInvoice.findOne({ zakhialgiinDugaar }).lean() as any;
-    if (!invoice) { res.sendStatus(404); return; }
-
-    // Verify payment with QPay
-    const tenant = await Tenant.findById(tenantId) as any;
-    if (tenant) {
-      try {
-        const token = await qpayToken(tenant.qpayUsername, tenant.qpayPassword, tenant.qpayTerminalId);
-        const invoiceId = invoice.invoiceId;
-        const { data: checkData } = await axios.post(
-          `${QPAY_BASE}/v2/payment/check`,
-          JSON.stringify({ object_type: "INVOICE", object_id: invoiceId }),
-          { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
-        );
-        logToFile("QPay callback payment check", { zakhialgiinDugaar, checkData });
-        // Verify amount matches
-        const paidAmount = Number(checkData?.rows?.[0]?.payment_amount ?? checkData?.paid_amount ?? 0);
-        const invoiceAmount = Number(invoice.amount ?? 0);
-        if (paidAmount > 0 && invoiceAmount > 0 && paidAmount !== invoiceAmount) {
-          logToFile("QPay amount mismatch", { paidAmount, invoiceAmount, zakhialgiinDugaar });
-          res.status(400).json({ error: "Amount mismatch" }); return;
-        }
-      } catch (verifyErr: any) {
-        logToFile("QPay callback verification failed", verifyErr?.message);
-      }
-    }
+    const { zakhialgiinDugaar } = req.params;
+    logToFile("QPay callback received", { zakhialgiinDugaar });
 
     await QpayInvoice.findOneAndUpdate({ zakhialgiinDugaar }, { paid: true });
+
+    // Also mark in QuickQpayObject collection
+    try {
+      const QpayObjModel = QuickQpayObject({ kholbolt: mongoose });
+      await QpayObjModel.findOneAndUpdate(
+        { zakhialgiinDugaar, tulsunEsekh: false },
+        { tulsunEsekh: true },
+      );
+    } catch (_) {}
+
     (req as any).app.get("socketio")?.emit("qpay" + zakhialgiinDugaar);
     res.sendStatus(200);
   } catch (e) {
