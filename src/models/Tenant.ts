@@ -84,6 +84,7 @@ const TenantSchema = new Schema(
     // Per-tenant values override the global credentials when set:
     qpayUsername:         { type: String, default: "" },
     qpayPassword:         { type: String, default: "" },
+    qpayTerminalId:       { type: String, default: "" },
     qpayInvoiceCode:      { type: String, default: "" }, // invoice code from QPay portal
     qpayFeeType:          { type: String, enum: ["CHARGE_PAYER", "CHARGE_MERCHANT"], default: "CHARGE_PAYER" }, // required
     // Merchant identity

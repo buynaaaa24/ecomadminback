@@ -119,6 +119,7 @@ configRouter.get("/", async (req, res, next) => {
         testServer: process.env.QPAY_TEST_SERVER || "https://merchant-sandbox.qpay.mn/",
         username: (t.qpayUsername as string) || process.env.QPAY_USERNAME || "",
         password: (t.qpayPassword as string) || process.env.QPAY_PASSWORD || "",
+        terminalId: (t.qpayTerminalId as string) || process.env.QPAY_TERMINAL_ID || "",
         invoiceCode: (t.qpayInvoiceCode as string) || "",
         feeType: (t.qpayFeeType as string) || "CHARGE_PAYER",
         merchantName: (t.qpayMerchantName as string) || "",
@@ -219,6 +220,7 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       emOrgId,
       qpayUsername,
       qpayPassword,
+      qpayTerminalId,
       qpayInvoiceCode,
       qpayFeeType,
       qpayMerchantName,
@@ -272,6 +274,7 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (emOrgId !== undefined) (tenant as any).emOrgId = emOrgId;
     if (qpayUsername !== undefined) (tenant as any).qpayUsername = qpayUsername;
     if (qpayPassword !== undefined) (tenant as any).qpayPassword = qpayPassword;
+    if (qpayTerminalId !== undefined) (tenant as any).qpayTerminalId = qpayTerminalId;
     if (qpayInvoiceCode !== undefined) (tenant as any).qpayInvoiceCode = qpayInvoiceCode;
     if (qpayFeeType !== undefined) (tenant as any).qpayFeeType = qpayFeeType;
     if (qpayMerchantName !== undefined) (tenant as any).qpayMerchantName = qpayMerchantName;

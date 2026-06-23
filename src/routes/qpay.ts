@@ -73,11 +73,12 @@ export const qpayRouter = Router();
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-async function qpayToken(customUser?: string, customPass?: string): Promise<string> {
+async function qpayToken(customUser?: string, customPass?: string, customTerminal?: string): Promise<string> {
   const username = customUser || process.env.QPAY_USERNAME;
   const password = customPass || process.env.QPAY_PASSWORD;
+  const terminalId = customTerminal || process.env.QPAY_TERMINAL_ID || "95000059";
   
-  logToFile(`Attempting token generation. Username: ${username ? '***' + username.slice(-4) : 'undefined'}`);
+  logToFile(`Attempting token generation. Username: ${username ? '***' + username.slice(-4) : 'undefined'}, Terminal ID: ${terminalId}`);
   
   if (!username || !password) {
     logToFile("QPay credentials (username/password) are missing.");
@@ -88,7 +89,7 @@ async function qpayToken(customUser?: string, customPass?: string): Promise<stri
   try {
     const { data } = await axios.post(
       `${QPAY_BASE}/v2/auth/token`,
-      JSON.stringify({ terminal_id: "95000059" }),
+      JSON.stringify({ terminal_id: terminalId }),
       { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
     );
     if (!data?.access_token) {
@@ -140,7 +141,7 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res) => {
     const isPerson = t.registerTurul === "Хувь хүн";
     const urn = isPerson ? "v2/merchant/person" : "v2/merchant/company";
 
-    const token = await qpayToken(t.qpayUsername, t.qpayPassword);
+    const token = await qpayToken(t.qpayUsername, t.qpayPassword, t.qpayTerminalId);
 
     const merchantBody: Record<string, unknown> = {
       type:            isPerson ? "PERSON" : "COMPANY",
@@ -185,7 +186,7 @@ qpayRouter.get("/merchant", requireAdminAuth, async (req, res) => {
   try {
     const tenant = await resolveTenant(req);
     if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
-    const token = await qpayToken((tenant as any).qpayUsername, (tenant as any).qpayPassword);
+    const token = await qpayToken((tenant as any).qpayUsername, (tenant as any).qpayPassword, (tenant as any).qpayTerminalId);
     const { data } = await axios.get(
       `${QPAY_BASE}/v2/merchant?register_number=${encodeURIComponent((tenant as any).qpayRegister ?? "")}`,
       { headers: { Authorization: `Bearer ${token}` } },
@@ -219,7 +220,7 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     const port = process.env.PORT ?? "8000";
     const callback_url = `http://${host}:${port}/api/qpay/callback/${String(tenant._id)}/${zakhialgiinDugaar}`;
 
-    const token = await qpayToken(t.qpayUsername, t.qpayPassword);
+    const token = await qpayToken(t.qpayUsername, t.qpayPassword, t.qpayTerminalId);
     const invoicePayload = {
       merchant_id:           t.qpayMerchantId,
       amount:                dun,
