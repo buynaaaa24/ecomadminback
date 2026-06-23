@@ -3,6 +3,25 @@ import axios from "axios";
 import mongoose from "mongoose";
 import { Tenant } from "../models/Tenant.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
+import fs from "fs";
+import path from "path";
+
+function logToFile(message: string, data?: any) {
+  try {
+    const logDir = path.resolve("logs");
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    const logPath = path.join(logDir, "qpay.log");
+    const timestamp = new Date().toISOString();
+    const formattedData = data ? `\nData: ${JSON.stringify(data, null, 2)}` : "";
+    const logLine = `[${timestamp}] ${message}${formattedData}\n\n`;
+    fs.appendFileSync(logPath, logLine, "utf8");
+    console.log(`[QPay FileLog] ${message}`, data ? JSON.stringify(data) : "");
+  } catch (err) {
+    console.error("Failed to write to log file:", err);
+  }
+}
 
 const QpayInvoiceSchema = new mongoose.Schema({
   tenantId:          String,
@@ -24,9 +43,10 @@ async function qpayToken(customUser?: string, customPass?: string): Promise<stri
   const username = customUser || process.env.QPAY_USERNAME;
   const password = customPass || process.env.QPAY_PASSWORD;
   
-  console.log(`[QPay Auth] Attempting token generation. Username: ${username ? '***' + username.slice(-4) : 'undefined'}`);
+  logToFile(`Attempting token generation. Username: ${username ? '***' + username.slice(-4) : 'undefined'}`);
   
   if (!username || !password) {
+    logToFile("QPay credentials (username/password) are missing.");
     throw new Error("QPay credentials (username/password) are missing.");
   }
   
@@ -38,12 +58,13 @@ async function qpayToken(customUser?: string, customPass?: string): Promise<stri
       { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
     );
     if (!data?.access_token) {
+      logToFile("QPay auth failed: Access token not returned.", data);
       throw new Error(`QPay auth failed: Access token not returned. Response: ${JSON.stringify(data)}`);
     }
-    console.log("[QPay Auth] Token successfully retrieved");
+    logToFile("Token successfully retrieved");
     return data.access_token;
   } catch (error: any) {
-    console.log("[QPay Auth Error] Detailed response:", JSON.stringify(error?.response?.data || {}, null, 2));
+    logToFile("QPay Auth Error", error?.response?.data || error?.message);
     throw error;
   }
 }
@@ -171,7 +192,7 @@ qpayRouter.post("/invoice", async (req, res, next) => {
       callback_url,
     };
 
-    console.log("[QPay invoice] Preparing request to QPay API:", {
+    logToFile("Preparing request to QPay API", {
       url: `${QPAY_BASE}/v2/invoice`,
       payload: invoicePayload,
       tenantId: String(tenant._id),
@@ -184,7 +205,7 @@ qpayRouter.post("/invoice", async (req, res, next) => {
       { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     );
 
-    console.log("[QPay invoice] QPay API response success:", JSON.stringify(data, null, 2));
+    logToFile("QPay API response success", data);
 
     await QpayInvoice.findOneAndUpdate(
       { zakhialgiinDugaar },
@@ -195,8 +216,11 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     res.json({ success: true, data });
   } catch (e: any) {
     const err = e?.response?.data;
-    console.log("[QPay invoice error response]:", JSON.stringify(err || {}, null, 2));
-    console.log("[QPay invoice error stack/message]:", e?.message, e?.response?.status);
+    logToFile("QPay invoice error", {
+      message: e?.message,
+      status: e?.response?.status,
+      response: err,
+    });
     res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
   }
 });
