@@ -23,6 +23,40 @@ function logToFile(message: string, data?: any) {
   }
 }
 
+function getBankCode(bankName: string): string {
+  if (!bankName) return "050000"; // Default to Khan Bank if empty
+  
+  const name = bankName.toLowerCase().trim();
+  
+  // Khan Bank
+  if (name.includes("хаан") || name.includes("khan")) return "050000";
+  // Golomt Bank
+  if (name.includes("голомт") || name.includes("golomt")) return "150000";
+  // Trade & Development Bank (TDB / ХХБ)
+  if (name.includes("худалдаа") || name.includes("tdb") || name.includes("ххб")) return "040000";
+  // State Bank
+  if (name.includes("төрийн") || name.includes("төр") || name.includes("state")) return "340000";
+  // Xac Bank
+  if (name.includes("хас") || name.includes("xac") || name.includes("has")) return "220000";
+  // Capitron
+  if (name.includes("капитрон") || name.includes("capitron")) return "300000";
+  // Bogd
+  if (name.includes("богд") || name.includes("bogd")) return "320000";
+  // Arig
+  if (name.includes("ариг") || name.includes("arig")) return "210000";
+  // Chinggis Khaan
+  if (name.includes("чингис") || name.includes("chinggis")) return "260000";
+  // Trans Bank
+  if (name.includes("тээвэр") || name.includes("trans")) return "380000";
+  // M Bank
+  if (name.includes("м банк") || name === "m bank" || name === "m" || name.includes("mbank")) return "020000";
+
+  // If it's already a 6-digit numeric string, return it directly
+  if (/^\d{6}$/.test(bankName)) return bankName;
+
+  return "050000"; // default fallback
+}
+
 const QpayInvoiceSchema = new mongoose.Schema({
   tenantId:          String,
   zakhialgiinDugaar: { type: String, index: true },
@@ -195,7 +229,7 @@ qpayRouter.post("/invoice", async (req, res, next) => {
       callback_url,
       bank_accounts: [
         {
-          account_bank_code: t.qpayBankName || "050000",
+          account_bank_code: getBankCode(t.qpayBankName),
           account_number:    t.qpayBankAccount,
           account_name:      t.qpayBankAccountName || t.name,
           is_default:        true,
