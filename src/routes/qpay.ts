@@ -1,53 +1,62 @@
 import { Router } from "express";
 import axios from "axios";
 import mongoose from "mongoose";
-import { createRequire } from "module";
 import { Tenant } from "../models/Tenant.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 import fs from "fs";
 import path from "path";
 
-const require = createRequire(import.meta.url);
+// ── Models ────────────────────────────────────────────────────────────────────
 
+const QpayKhariltsagchSchema = new mongoose.Schema({
+  type: String,
+  register_number: String,
+  baiguullagiinId: { type: String, index: true },
+  name: String,
+  first_name: String,
+  last_name: String,
+  business_name: String,
+  owner_last_name: String,
+  owner_first_name: String,
+  company_name: String,
+  mcc_code: String,
+  merchant_id: String,
+  merchant_idTrue: String,
+  merchant_idFalse: String,
+  city: String,
+  district: String,
+  address: String,
+  phone: String,
+  email: String,
+  salbaruud: [mongoose.Schema.Types.Mixed],
+}, { timestamps: true });
+const QpayKhariltsagch = mongoose.models.QpayKhariltsagch ?? mongoose.model("QpayKhariltsagch", QpayKhariltsagchSchema);
 
-const { qpayGargaya, qpayShalgay, qpayKhariltsagchUusgey, QuickQpayObject, QpayKhariltsagch } = require("quickqpaypackv2");
+const QuickQpayObjectSchema = new mongoose.Schema({
+  gereeniiId: String,
+  zogsooliinId: String,
+  zogsoolUilchluulegch: mongoose.Schema.Types.Mixed,
+  baiguullagiinId: String,
+  zakhialgiinDugaar: String,
+  salbariinId: String,
+  tulsunEsekh: Boolean,
+  ognoo: Date,
+  qpay: mongoose.Schema.Types.Mixed,
+  payment_id: String,
+  legacy_id: String,
+  invoice_id: String,
+});
+const QuickQpayObject = mongoose.models.QuickQpayObject ?? mongoose.model("QuickQpayObject", QuickQpayObjectSchema);
 
-function logToFile(message: string, data?: any) {
-  try {
-    const logDir = path.resolve("logs");
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
-    const logPath = path.join(logDir, "qpay.log");
-    const timestamp = new Date().toISOString();
-    const formattedData = data ? `\nData: ${JSON.stringify(data, null, 2)}` : "";
-    const logLine = `[${timestamp}] ${message}${formattedData}\n\n`;
-    fs.appendFileSync(logPath, logLine, "utf8");
-    console.log(`[QPay FileLog] ${message}`, data ? JSON.stringify(data) : "");
-  } catch (err) {
-    console.error("Failed to write to log file:", err);
-  }
-}
+const QpayTokenSchema = new mongoose.Schema({
+  turul: String,
+  token: String,
+  refreshToken: String,
+  expires_in: Date,
+  ognoo: Date,
+}, { timestamps: true });
+const QpayToken = mongoose.models.qpaytoken ?? mongoose.model("qpaytoken", QpayTokenSchema);
 
-function getBankCode(bankName: string): string {
-  if (!bankName) return "050000";
-  const name = bankName.toLowerCase().trim();
-  if (name.includes("хаан") || name.includes("khan")) return "050000";
-  if (name.includes("голомт") || name.includes("golomt")) return "150000";
-  if (name.includes("худалдаа") || name.includes("tdb") || name.includes("ххб")) return "040000";
-  if (name.includes("төрийн") || name.includes("төр") || name.includes("state")) return "340000";
-  if (name.includes("хас") || name.includes("xac") || name.includes("has")) return "220000";
-  if (name.includes("капитрон") || name.includes("capitron")) return "300000";
-  if (name.includes("богд") || name.includes("bogd")) return "320000";
-  if (name.includes("ариг") || name.includes("arig")) return "210000";
-  if (name.includes("чингис") || name.includes("chinggis")) return "260000";
-  if (name.includes("тээвэр") || name.includes("trans")) return "380000";
-  if (name.includes("м банк") || name === "m bank" || name === "m" || name.includes("mbank")) return "020000";
-  if (/^\d{6}$/.test(bankName)) return bankName;
-  return "050000";
-}
-
-// ── Local invoice tracker ─────────────────────────────────────────────────────
 const QpayInvoiceSchema = new mongoose.Schema({
   tenantId:          String,
   zakhialgiinDugaar: { type: String, index: true },
@@ -59,28 +68,74 @@ const QpayInvoiceSchema = new mongoose.Schema({
 });
 const QpayInvoice = mongoose.models.QpayInvoice ?? mongoose.model("QpayInvoice", QpayInvoiceSchema);
 
+// ── Config ────────────────────────────────────────────────────────────────────
+
 const QPAY_BASE = (process.env.QPAY_MERCHANT_SERVER ?? "https://quickqr.qpay.mn").replace(/\/$/, "");
+
+// Hardcoded credentials (same as quickqpaypackv2 uses internally)
+const QPAY_CREDS = {
+  shimtgelTrue:  { username: "ZEV_TABS1", password: "PB5RcI2g", terminal: "95000059", turul: "quickqpay" },
+  shimtgelFalse: { username: "ZEV_TABS",  password: "IZljztNr", terminal: "95000059", turul: "quickqpay1" },
+};
 
 export const qpayRouter = Router();
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function qpayToken(customUser?: string, customPass?: string, customTerminal?: string): Promise<string> {
-  const username = customUser || process.env.QPAY_USERNAME;
-  const password = customPass || process.env.QPAY_PASSWORD;
-  const terminalId = customTerminal || process.env.QPAY_TERMINAL_ID || "95000059";
-  if (!username || !password) throw new Error("QPay credentials missing.");
-  const creds = Buffer.from(`${username}:${password}`).toString("base64");
+function logToFile(message: string, data?: any) {
+  try {
+    const logDir = path.resolve("logs");
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logPath = path.join(logDir, "qpay.log");
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${message}${data ? `\nData: ${JSON.stringify(data, null, 2)}` : ""}\n\n`;
+    fs.appendFileSync(logPath, line, "utf8");
+    console.log(`[QPay] ${message}`, data ? JSON.stringify(data) : "");
+  } catch (_) {}
+}
+
+function getBankCode(bankName: string): string {
+  if (!bankName) return "050000";
+  const n = bankName.toLowerCase().trim();
+  if (n.includes("хаан") || n.includes("khan")) return "050000";
+  if (n.includes("голомт") || n.includes("golomt")) return "150000";
+  if (n.includes("худалдаа") || n.includes("tdb") || n.includes("ххб")) return "040000";
+  if (n.includes("төрийн") || n.includes("төр") || n.includes("state")) return "340000";
+  if (n.includes("хас") || n.includes("xac") || n.includes("has")) return "220000";
+  if (n.includes("капитрон") || n.includes("capitron")) return "300000";
+  if (n.includes("богд") || n.includes("bogd")) return "320000";
+  if (n.includes("ариг") || n.includes("arig")) return "210000";
+  if (n.includes("чингис") || n.includes("chinggis")) return "260000";
+  if (n.includes("тээвэр") || n.includes("trans")) return "380000";
+  if (n.includes("м банк") || n === "m bank" || n.includes("mbank")) return "020000";
+  if (/^\d{6}$/.test(bankName)) return bankName;
+  return "050000";
+}
+
+async function getQpayToken(shimtgel: boolean): Promise<string> {
+  const cred = shimtgel ? QPAY_CREDS.shimtgelTrue : QPAY_CREDS.shimtgelFalse;
+
+  // Check cached token
+  const cached = await QpayToken.findOne({ turul: cred.turul, expires_in: { $gte: new Date() } });
+  if (cached?.token) return cached.token as string;
+
+  // Fetch new token
+  const creds = Buffer.from(`${cred.username}:${cred.password}`).toString("base64");
   const { data } = await axios.post(
     `${QPAY_BASE}/v2/auth/token`,
-    JSON.stringify({ terminal_id: terminalId }),
+    JSON.stringify({ terminal_id: cred.terminal }),
     { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
   );
   if (!data?.access_token) throw new Error("QPay auth failed");
+
+  // Cache it
+  await QpayToken.updateOne(
+    { turul: cred.turul },
+    { token: data.access_token, refreshToken: data.refresh_token, expires_in: new Date(data.expires_in), ognoo: new Date() },
+    { upsert: true },
+  );
   return data.access_token;
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function resolveTenant(req: any) {
   const a = req.admin;
@@ -114,63 +169,69 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res) => {
     if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
     const t = tenant as any;
 
-    // Build khariltsagch object for quickqpaypackv2
     const isPerson = t.registerTurul === "Хувь хүн";
-    const khariltsagch: any = {
+    const urn = isPerson ? "v2/merchant/person" : "v2/merchant/company";
+    const shimtgel = t.qpayFeeType === "CHARGE_MERCHANT";
+
+    const merchantBody: any = {
       type:            isPerson ? "PERSON" : "COMPANY",
       register_number: t.qpayRegister ?? "",
-      baiguullagiinId: String(tenant._id),
       mcc_code:        t.qpayMccCode ?? "5311",
       city:            t.qpayCity ?? "",
       district:        t.qpayDistrict ?? "",
       address:         t.qpayAddress ?? "",
       phone:           t.qpayPhone ?? "",
       email:           t.qpayEmail ?? "",
-      salbaruud: [
-        {
-          salbariinId:      String(tenant._id),
-          salbariinNer:     t.name || t.qpayMerchantName || "",
-          qpayShimtgelTurul: t.qpayFeeType === "CHARGE_MERCHANT",
-          bank_accounts: [
-            {
-              account_bank_code: getBankCode(t.qpayBankName),
-              account_number:    t.qpayBankAccount,
-              account_name:      t.qpayBankAccountName || t.name,
-              is_default:        true,
-              qpayShimtgelTurul: t.qpayFeeType === "CHARGE_MERCHANT",
-            }
-          ]
-        }
-      ]
     };
-
     if (isPerson) {
-      khariltsagch.first_name    = t.qpayMerchantName ?? "";
-      khariltsagch.last_name     = t.qpayMerchantName ?? "";
-      khariltsagch.business_name = t.qpayMerchantName ?? "";
+      merchantBody.first_name = t.qpayMerchantName ?? "";
+      merchantBody.last_name = t.qpayMerchantName ?? "";
+      merchantBody.business_name = t.qpayMerchantName ?? "";
     } else {
-      khariltsagch.name              = t.qpayMerchantName ?? "";
-      khariltsagch.owner_first_name  = t.qpayMerchantName ?? "";
-      khariltsagch.owner_last_name   = t.qpayMerchantName ?? "";
-      khariltsagch.company_name      = t.qpayMerchantName ?? "";
+      merchantBody.owner_first_name = t.qpayMerchantName ?? "";
+      merchantBody.owner_last_name = t.qpayMerchantName ?? "";
+      merchantBody.company_name = t.qpayMerchantName ?? "";
+      merchantBody.name = t.qpayMerchantName ?? "";
     }
 
-    const result = await qpayKhariltsagchUusgey(khariltsagch, { kholbolt: mongoose });
+    const token = await getQpayToken(shimtgel);
+    const { data } = await axios.post(
+      `${QPAY_BASE}/${urn}`,
+      JSON.stringify(merchantBody),
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
+    );
 
-    if (result === "Amjilttai") {
-      // Read back the saved merchant to get merchant_id
-      const QpayKhariltsagchModel = QpayKhariltsagch({ kholbolt: mongoose });
-      const saved = await QpayKhariltsagchModel.findOne({ baiguullagiinId: String(tenant._id) });
-      if (saved?.merchant_id) {
-        await (tenant as any).updateOne({ qpayMerchantId: saved.merchant_id });
-      }
-      res.json({ success: true, data: saved });
-    } else {
-      res.status(400).json({ success: false, error: result });
-    }
+    // Save to QpayKhariltsagch (same structure as quickqpaypackv2)
+    const merchantIdField = shimtgel ? "merchant_idTrue" : "merchant_idFalse";
+    await QpayKhariltsagch.findOneAndUpdate(
+      { baiguullagiinId: String(tenant._id) },
+      {
+        ...merchantBody,
+        baiguullagiinId: String(tenant._id),
+        merchant_id: data.id,
+        [merchantIdField]: data.id,
+        salbaruud: [{
+          salbariinId: String(tenant._id),
+          salbariinNer: t.name || t.qpayMerchantName || "",
+          qpayShimtgelTurul: shimtgel,
+          bank_accounts: [{
+            account_bank_code: getBankCode(t.qpayBankName),
+            account_number: t.qpayBankAccount,
+            account_name: t.qpayBankAccountName || t.name,
+            is_default: true,
+            qpayShimtgelTurul: shimtgel,
+          }],
+        }],
+      },
+      { upsert: true, new: true },
+    );
+
+    await (tenant as any).updateOne({ qpayMerchantId: data.id });
+    res.json({ success: true, data });
   } catch (e: any) {
-    console.error("[QPay register-merchant]", e?.message);
-    res.status(500).json({ success: false, error: e?.message });
+    const err = e?.response?.data;
+    console.error("[QPay register-merchant]", err ?? e?.message);
+    res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
   }
 });
 
@@ -180,7 +241,7 @@ qpayRouter.get("/merchant", requireAdminAuth, async (req, res) => {
   try {
     const tenant = await resolveTenant(req);
     if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
-    const token = await qpayToken((tenant as any).qpayUsername, (tenant as any).qpayPassword, (tenant as any).qpayTerminalId);
+    const token = await getQpayToken(false);
     const { data } = await axios.get(
       `${QPAY_BASE}/v2/merchant?register_number=${encodeURIComponent((tenant as any).qpayRegister ?? "")}`,
       { headers: { Authorization: `Bearer ${token}` } },
@@ -213,40 +274,86 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     const port = process.env.PORT ?? "8000";
     const callback_url = `http://${host}:${port}/api/qpay/callback/${String(tenant._id)}/${zakhialgiinDugaar}`;
 
-    // Use quickqpaypackv2 qpayGargaya — same as udirdlagaBack
-    const body: any = {
-      baiguullagiinId: String(tenant._id),
-      barilgiinId:     String(tenant._id), // salbariinId = tenantId
-      dun:             amount,
-      tulbur:          amount,
-      tailbar:         tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
-      zakhialgiinDugaar,
-      dansniiDugaar:   t.qpayBankAccount || undefined,
-    };
-
-    logToFile("Calling qpayGargaya", { body, callback_url });
-
-    const khariu = await qpayGargaya(body, callback_url, { kholbolt: mongoose });
-
-    if (typeof khariu === "string") {
-      // Error string returned
-      res.status(400).json({ success: false, error: khariu });
-      return;
+    // Look up merchant from QpayKhariltsagch (same as qpayGargaya does)
+    const khariltsagch = await QpayKhariltsagch.findOne({ baiguullagiinId: String(tenant._id) }).lean() as any;
+    if (!khariltsagch) {
+      res.status(400).json({ error: "Merchant not registered in QPay. Call register-merchant first." }); return;
     }
 
-    logToFile("qpayGargaya success", khariu);
+    // Find the salbar (branch)
+    const salbar = khariltsagch.salbaruud?.find((s: any) => s.salbariinId === String(tenant._id));
+    if (!salbar || !salbar.bank_accounts?.length) {
+      res.status(400).json({ error: "No bank accounts configured for this merchant." }); return;
+    }
 
-    // Also save to our local tracker
+    // Determine which bank account and token to use
+    let bank = salbar.bank_accounts;
+    let shimtgel = salbar.qpayShimtgelTurul ?? false;
+    if (t.qpayBankAccount) {
+      const found = bank.find((a: any) => a.account_number === t.qpayBankAccount);
+      if (found) {
+        bank = [found];
+        if (found.qpayShimtgelTurul !== undefined) shimtgel = found.qpayShimtgelTurul;
+      }
+    }
+
+    // Use correct merchant_id based on shimtgel type
+    const merchantId = shimtgel
+      ? (khariltsagch.merchant_idTrue || khariltsagch.merchant_id)
+      : (khariltsagch.merchant_idFalse || khariltsagch.merchant_id);
+
+    const token = await getQpayToken(shimtgel);
+
+    const invoicePayload = {
+      merchant_id: merchantId,
+      amount,
+      currency: "MNT",
+      customer_name: khariltsagch.name || khariltsagch.first_name || "",
+      customer_logo: "",
+      allow_partial: false,
+      minimum_amount: null,
+      allow_exceed: false,
+      maximum_amount: null,
+      callback_url,
+      description: tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+      mcc_code: khariltsagch.mcc_code || "5311",
+      bank_accounts: bank,
+    };
+
+    logToFile("Creating QPay invoice", { invoicePayload });
+
+    const { data } = await axios.post(
+      `${QPAY_BASE}/v2/invoice`,
+      JSON.stringify(invoicePayload),
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
+    );
+
+    logToFile("QPay invoice created", data);
+
+    // Save to QuickQpayObject (compatible with udirdlagaBack)
+    await QuickQpayObject.create({
+      baiguullagiinId: String(tenant._id),
+      salbariinId: String(tenant._id),
+      zakhialgiinDugaar,
+      ognoo: new Date(),
+      tulsunEsekh: false,
+      legacy_id: data.legacy_id,
+      invoice_id: data.id,
+      qpay: invoicePayload,
+    });
+
+    // Save to local tracker
     await QpayInvoice.findOneAndUpdate(
       { zakhialgiinDugaar },
-      { tenantId: String(tenant._id), invoiceId: khariu.id, qpayData: khariu, paid: false, amount },
+      { tenantId: String(tenant._id), invoiceId: data.id, qpayData: data, paid: false, amount },
       { upsert: true, new: true },
     );
 
-    res.json({ success: true, data: khariu });
+    res.json({ success: true, data });
   } catch (e: any) {
-    logToFile("QPay invoice error", { message: e?.message });
-    res.status(500).json({ success: false, error: e?.message });
+    const err = e?.response?.data;
+    logToFile("QPay invoice error", { message: e?.message, response: err });
+    res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
   }
 });
 
@@ -258,15 +365,10 @@ qpayRouter.get("/callback/:tenantId/:zakhialgiinDugaar", async (req, res, next) 
     logToFile("QPay callback received", { zakhialgiinDugaar });
 
     await QpayInvoice.findOneAndUpdate({ zakhialgiinDugaar }, { paid: true });
-
-    // Also mark in QuickQpayObject collection
-    try {
-      const QpayObjModel = QuickQpayObject({ kholbolt: mongoose });
-      await QpayObjModel.findOneAndUpdate(
-        { zakhialgiinDugaar, tulsunEsekh: false },
-        { tulsunEsekh: true },
-      );
-    } catch (_) {}
+    await QuickQpayObject.findOneAndUpdate(
+      { zakhialgiinDugaar, tulsunEsekh: false },
+      { tulsunEsekh: true },
+    );
 
     (req as any).app.get("socketio")?.emit("qpay" + zakhialgiinDugaar);
     res.sendStatus(200);
