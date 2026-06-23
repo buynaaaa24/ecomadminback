@@ -8,6 +8,7 @@ import { Tenant } from "../models/Tenant.js";
 import { getTenantConnection } from "../db.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 import { serializeDocument, serializeLean } from "../util/serialize.js";
+import { issueEbarimt } from "../util/ebarimt.js";
 
 export const ordersRouter = Router();
 
@@ -71,7 +72,19 @@ ordersRouter.post("/public", async (req, res, next) => {
     }
 
     const { Model: ProductModel } = await resolveProductModel(tenantId);
-    const tenant = await Tenant.findById(tenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string; emDbUri?: string }>();
+    const tenant = await Tenant.findById(tenantId).lean<{ 
+      posDbUri?: string; 
+      posBranchId?: string; 
+      posOrgId?: string; 
+      emDbUri?: string; 
+      emBranchId?: string; 
+      emOrgId?: string; 
+      ebarimtTin?: string;
+      ebarimtDistrict?: string;
+      ebarimtKhoroo?: string;
+      ebarimtEnabled?: boolean;
+      ebarimtAutoSend?: boolean;
+    }>();
     const posUri = tenant?.posDbUri;
     const emUri = tenant?.emDbUri;
 
@@ -135,6 +148,8 @@ ordersRouter.post("/public", async (req, res, next) => {
             body: JSON.stringify({
               code: productDoc.emProductCode,
               quantity: qty,
+              salbariinId: tenant?.emBranchId || "",
+              baiguullagiinId: tenant?.emOrgId || "",
             }),
           });
           if (!decResponse.ok) {
@@ -220,15 +235,52 @@ ordersRouter.post("/public", async (req, res, next) => {
     // 3. Generate tracking order number
     const orderNumber = `E-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
+    const paymentStatus = paymentMethod === "qpay" ? "paid" : "pending";
+
+    const savedItems = items.map((item) => {
+      return {
+        productId: item.productId,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        ebarimtBillId: "",
+        ebarimtLottery: "",
+        ebarimtQrData: "",
+      };
+    });
+
+    // Auto-generate Ebarimt if payment is successful and ebarimt integration is active + auto-send is enabled
+    if (paymentStatus === "paid" && tenant?.ebarimtEnabled && tenant?.ebarimtAutoSend) {
+      try {
+        console.log(`[Ebarimt Auto] Generating ebarimt for Order: ${orderNumber}`);
+        const tempOrder = {
+          orderNumber,
+          items: savedItems,
+        };
+        const ebarimtDoc = await issueEbarimt(tempOrder, tenant);
+        if (ebarimtDoc) {
+          // Assign ebarimt details to all savedItems
+          for (const item of savedItems) {
+            item.ebarimtBillId = ebarimtDoc.billId || "";
+            item.ebarimtLottery = ebarimtDoc.lottery || "";
+            item.ebarimtQrData = ebarimtDoc.qrData || "";
+          }
+          console.log(`[Ebarimt Auto] Success! Bill ID: ${ebarimtDoc.billId}`);
+        }
+      } catch (ebErr: any) {
+        console.error("[Ebarimt Auto] Failed to generate ebarimt:", ebErr.message || ebErr);
+      }
+    }
+
     // 4. Create and save the order document
     const { Model: OrderModel, useTenantFilter } = await resolveOrderModel(tenantId);
     
     const orderBody: Record<string, any> = {
       customerInfo,
-      items,
+      items: savedItems,
       total,
       paymentMethod,
-      paymentStatus: "pending",
+      paymentStatus,
       orderStatus: "pending",
       orderNumber,
     };

@@ -104,6 +104,13 @@ const TenantSchema = new Schema(
     register: { type: String, default: "" },
     registerTurul: { type: String, enum: ["Байгууллага", "Хувь хүн"], default: "Байгууллага" },
 
+    // ── Ebarimt Client Admin Configuration ──────────────────────────────────────
+    ebarimtTin:      { type: String, default: "" },
+    ebarimtDistrict: { type: String, default: "" },
+    ebarimtKhoroo:   { type: String, default: "" },
+    ebarimtEnabled:  { type: Boolean, default: false },
+    ebarimtAutoSend: { type: Boolean, default: false },
+
     branches: [
       {
         id:          { type: String, default: "" },
