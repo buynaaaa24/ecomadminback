@@ -22,7 +22,7 @@ function getDistrictCode(districtName: string): string {
   return "12"; // Default fallback
 }
 
-export async function issueEbarimt(order: any, tenant: any): Promise<any> {
+export async function issueEbarimt(order: any, tenant: any, receiptType: string = "B2C_RECEIPT", customerTin: string = ""): Promise<any> {
   try {
     const orgId = tenant.ebarimtTin || tenant.emOrgId || tenant.posOrgId;
     if (!orgId) {
@@ -94,7 +94,7 @@ export async function issueEbarimt(order: any, tenant: any): Promise<any> {
     ];
 
     const payload: any = {
-      type: "B2C_RECEIPT",
+      type: receiptType,
       baiguullagiinId: orgId,
       salbariinId: tenant.emBranchId || tenant.posBranchId || "001",
       guilgeeniiDugaar: order.orderNumber,
@@ -105,7 +105,7 @@ export async function issueEbarimt(order: any, tenant: any): Promise<any> {
       totalAmount: Math.round((totalAmount + Number.EPSILON) * 100) / 100,
       totalVAT: Math.round((totalVAT + Number.EPSILON) * 100000) / 100000,
       totalCityTax: 0,
-      customerNo: "",
+      customerNo: customerTin || "",
       receipts,
       payments: [
         {
@@ -147,7 +147,8 @@ export async function issueEbarimt(order: any, tenant: any): Promise<any> {
       totalAmount: totalAmount,
       totalVAT: totalVAT,
       merchantTin: finalTin,
-      type: "B2C_RECEIPT",
+      type: receiptType,
+      customerTin: customerTin || "",
       rawResponse: resData,
     });
 

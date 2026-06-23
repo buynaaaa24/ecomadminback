@@ -255,26 +255,26 @@ ordersRouter.post("/public", async (req, res, next) => {
       };
     });
 
-    // Auto-generate Ebarimt if payment is successful and ebarimt integration is active + auto-send is enabled
-    if (paymentStatus === "paid" && tenant?.ebarimtEnabled && tenant?.ebarimtAutoSend) {
+    // Generate Ebarimt: either auto-send or user explicitly chose type from frontend
+    const shouldIssueEbarimt = paymentStatus === "paid" && tenant?.ebarimtEnabled && (tenant?.ebarimtAutoSend || ebarimtType);
+    if (shouldIssueEbarimt) {
       try {
-        console.log(`[Ebarimt Auto] Generating ebarimt for Order: ${orderNumber}`);
+        console.log(`[Ebarimt] Generating ebarimt for Order: ${orderNumber}, type: ${ebarimtType || "B2C_RECEIPT"}`);
         const tempOrder = {
           orderNumber,
           items: savedItems,
         };
-        const ebarimtDoc = await issueEbarimt(tempOrder, tenant);
+        const ebarimtDoc = await issueEbarimt(tempOrder, tenant, ebarimtType || "B2C_RECEIPT", customerTin || "");
         if (ebarimtDoc) {
-          // Assign ebarimt details to all savedItems
           for (const item of savedItems) {
             item.ebarimtBillId = ebarimtDoc.billId || "";
             item.ebarimtLottery = ebarimtDoc.lottery || "";
             item.ebarimtQrData = ebarimtDoc.qrData || "";
           }
-          console.log(`[Ebarimt Auto] Success! Bill ID: ${ebarimtDoc.billId}`);
+          console.log(`[Ebarimt] Success! Bill ID: ${ebarimtDoc.billId}`);
         }
       } catch (ebErr: any) {
-        console.error("[Ebarimt Auto] Failed to generate ebarimt:", ebErr.message || ebErr);
+        console.error("[Ebarimt] Failed to generate ebarimt:", ebErr.message || ebErr);
       }
     }
 
