@@ -43,7 +43,7 @@ async function qpayToken(customUser?: string, customPass?: string): Promise<stri
     console.log("[QPay Auth] Token successfully retrieved");
     return data.access_token;
   } catch (error: any) {
-    console.error("[QPay Auth Error] Detailed response:", JSON.stringify(error?.response?.data || {}, null, 2));
+    console.log("[QPay Auth Error] Detailed response:", JSON.stringify(error?.response?.data || {}, null, 2));
     throw error;
   }
 }
@@ -195,8 +195,8 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     res.json({ success: true, data });
   } catch (e: any) {
     const err = e?.response?.data;
-    console.error("[QPay invoice error response]:", JSON.stringify(err || {}, null, 2));
-    console.error("[QPay invoice error stack/message]:", e?.message, e?.response?.status);
+    console.log("[QPay invoice error response]:", JSON.stringify(err || {}, null, 2));
+    console.log("[QPay invoice error stack/message]:", e?.message, e?.response?.status);
     res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
   }
 });
