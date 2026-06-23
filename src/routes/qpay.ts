@@ -20,15 +20,32 @@ export const qpayRouter = Router();
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-async function qpayToken(): Promise<string> {
-  const creds = Buffer.from(`${process.env.QPAY_USERNAME}:${process.env.QPAY_PASSWORD}`).toString("base64");
-  const { data } = await axios.post(
-    `${QPAY_BASE}/v2/auth/token`,
-    JSON.stringify({ terminal_id: "95000059" }),
-    { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
-  );
-  if (!data?.access_token) throw new Error(`QPay auth failed: ${JSON.stringify(data)}`);
-  return data.access_token;
+async function qpayToken(customUser?: string, customPass?: string): Promise<string> {
+  const username = customUser || process.env.QPAY_USERNAME;
+  const password = customPass || process.env.QPAY_PASSWORD;
+  
+  console.log(`[QPay Auth] Attempting token generation. Username: ${username ? '***' + username.slice(-4) : 'undefined'}`);
+  
+  if (!username || !password) {
+    throw new Error("QPay credentials (username/password) are missing.");
+  }
+  
+  const creds = Buffer.from(`${username}:${password}`).toString("base64");
+  try {
+    const { data } = await axios.post(
+      `${QPAY_BASE}/v2/auth/token`,
+      JSON.stringify({ terminal_id: "95000059" }),
+      { headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/json" } },
+    );
+    if (!data?.access_token) {
+      throw new Error(`QPay auth failed: Access token not returned. Response: ${JSON.stringify(data)}`);
+    }
+    console.log("[QPay Auth] Token successfully retrieved");
+    return data.access_token;
+  } catch (error: any) {
+    console.error("[QPay Auth Error] Detailed response:", JSON.stringify(error?.response?.data || {}, null, 2));
+    throw error;
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,7 +85,7 @@ qpayRouter.post("/register-merchant", requireAdminAuth, async (req, res) => {
     const isPerson = t.registerTurul === "Хувь хүн";
     const urn = isPerson ? "v2/merchant/person" : "v2/merchant/company";
 
-    const token = await qpayToken();
+    const token = await qpayToken(t.qpayUsername, t.qpayPassword);
 
     const merchantBody: Record<string, unknown> = {
       type:            isPerson ? "PERSON" : "COMPANY",
@@ -113,7 +130,7 @@ qpayRouter.get("/merchant", requireAdminAuth, async (req, res) => {
   try {
     const tenant = await resolveTenant(req);
     if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
-    const token = await qpayToken();
+    const token = await qpayToken((tenant as any).qpayUsername, (tenant as any).qpayPassword);
     const { data } = await axios.get(
       `${QPAY_BASE}/v2/merchant?register_number=${encodeURIComponent((tenant as any).qpayRegister ?? "")}`,
       { headers: { Authorization: `Bearer ${token}` } },
@@ -144,19 +161,30 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     const port = process.env.PORT ?? "8000";
     const callback_url = `http://${host}:${port}/api/qpay/callback/${String(tenant._id)}/${zakhialgiinDugaar}`;
 
-    const token = await qpayToken();
+    const token = await qpayToken(t.qpayUsername, t.qpayPassword);
+    const invoicePayload = {
+      invoice_code:          t.qpayInvoiceCode || process.env.QPAY_INVOICE_CODE || "",
+      sender_invoice_no:     zakhialgiinDugaar,
+      invoice_receiver_code: "terminal",
+      invoice_description:   tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+      amount:                dun,
+      callback_url,
+    };
+
+    console.log("[QPay invoice] Preparing request to QPay API:", {
+      url: `${QPAY_BASE}/v2/invoice`,
+      payload: invoicePayload,
+      tenantId: String(tenant._id),
+      merchantId: t.qpayMerchantId,
+    });
+
     const { data } = await axios.post(
       `${QPAY_BASE}/v2/invoice`,
-      JSON.stringify({
-        invoice_code:          t.qpayInvoiceCode ?? process.env.QPAY_INVOICE_CODE ?? "",
-        sender_invoice_no:     zakhialgiinDugaar,
-        invoice_receiver_code: "terminal",
-        invoice_description:   tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
-        amount:                dun,
-        callback_url,
-      }),
+      JSON.stringify(invoicePayload),
       { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     );
+
+    console.log("[QPay invoice] QPay API response success:", JSON.stringify(data, null, 2));
 
     await QpayInvoice.findOneAndUpdate(
       { zakhialgiinDugaar },
@@ -167,7 +195,8 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     res.json({ success: true, data });
   } catch (e: any) {
     const err = e?.response?.data;
-    console.error("[QPay invoice]", err ?? e?.message);
+    console.error("[QPay invoice error response]:", JSON.stringify(err || {}, null, 2));
+    console.error("[QPay invoice error stack/message]:", e?.message, e?.response?.status);
     res.status(e?.response?.status ?? 500).json({ success: false, error: err ?? e?.message });
   }
 });
