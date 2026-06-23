@@ -21,6 +21,19 @@ export async function getTenantConnection(
   if (!databaseUri.startsWith("mongodb://") && !databaseUri.startsWith("mongodb+srv://")) {
     throw new Error(`Invalid databaseUri for tenant connection: "${databaseUri}"`);
   }
+
+  // Auto-inject auth from central URI if tenant URI has no credentials
+  if (!databaseUri.includes("@")) {
+    const centralMatch = CENTRAL_URI.match(/mongodb:\/\/([^:]+):([^@]+)@/);
+    if (centralMatch) {
+      const [user, pass] = [centralMatch[1], centralMatch[2]];
+      databaseUri = databaseUri.replace("mongodb://", `mongodb://${user}:${pass}@`);
+      if (!databaseUri.includes("authSource")) {
+        databaseUri += databaseUri.includes("?") ? "&authSource=admin" : "?authSource=admin";
+      }
+    }
+  }
+
   const existing = pool.get(databaseUri);
   if (existing && existing.readyState === 1) return existing;
 
