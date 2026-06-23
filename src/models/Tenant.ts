@@ -104,6 +104,10 @@ const TenantSchema = new Schema(
     register: { type: String, default: "" },
     registerTurul: { type: String, enum: ["Байгууллага", "Хувь хүн"], default: "Байгууллага" },
 
+    // ── Shipping/Delivery Configuration ─────────────────────────────────────────
+    shippingFee:           { type: Number, default: 15000 },
+    shippingFreeThreshold: { type: Number, default: 500000 },
+
     // ── Ebarimt Client Admin Configuration ──────────────────────────────────────
     ebarimtTin:      { type: String, default: "" },
     ebarimtDistrict: { type: String, default: "" },

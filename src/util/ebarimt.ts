@@ -78,6 +78,7 @@ export async function issueEbarimt(order: any, tenant: any): Promise<any> {
       };
     });
 
+
     const totalAmount = items.reduce((sum: number, x: any) => sum + x.totalAmount, 0);
     const totalVAT = items.reduce((sum: number, x: any) => sum + x.totalVat, 0);
 

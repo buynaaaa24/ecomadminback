@@ -143,6 +143,13 @@ configRouter.get("/", async (req, res, next) => {
         subtitle: t.promoSubtitle ?? "",
         href: t.promoHref ?? "/",
       },
+      shippingFee:           typeof t.shippingFee === "number" ? t.shippingFee : 15000,
+      shippingFreeThreshold: typeof t.shippingFreeThreshold === "number" ? t.shippingFreeThreshold : 500000,
+      ebarimtTin:            (t.ebarimtTin as string) || "",
+      ebarimtDistrict:       (t.ebarimtDistrict as string) || "",
+      ebarimtKhoroo:         (t.ebarimtKhoroo as string) || "",
+      ebarimtEnabled:        !!t.ebarimtEnabled,
+      ebarimtAutoSend:       !!t.ebarimtAutoSend,
     });
   } catch (e) {
     next(e);
@@ -228,6 +235,13 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       register,
       registerTurul,
       branches,
+      shippingFee,
+      shippingFreeThreshold,
+      ebarimtTin,
+      ebarimtDistrict,
+      ebarimtKhoroo,
+      ebarimtEnabled,
+      ebarimtAutoSend,
     } = req.body;
 
     if (storeName !== undefined) tenant.name = storeName;
@@ -274,6 +288,13 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (register !== undefined) (tenant as any).register = register;
     if (registerTurul !== undefined) (tenant as any).registerTurul = registerTurul;
     if (branches !== undefined) (tenant as any).branches = branches;
+    if (shippingFee !== undefined) (tenant as any).shippingFee = shippingFee;
+    if (shippingFreeThreshold !== undefined) (tenant as any).shippingFreeThreshold = shippingFreeThreshold;
+    if (ebarimtTin !== undefined) (tenant as any).ebarimtTin = ebarimtTin;
+    if (ebarimtDistrict !== undefined) (tenant as any).ebarimtDistrict = ebarimtDistrict;
+    if (ebarimtKhoroo !== undefined) (tenant as any).ebarimtKhoroo = ebarimtKhoroo;
+    if (ebarimtEnabled !== undefined) (tenant as any).ebarimtEnabled = ebarimtEnabled;
+    if (ebarimtAutoSend !== undefined) (tenant as any).ebarimtAutoSend = ebarimtAutoSend;
 
     await tenant.save();
 

@@ -229,8 +229,12 @@ ordersRouter.post("/public", async (req, res, next) => {
       return;
     }
 
-    // 2. Compute total amount
-    const total = items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
+    // 2. Compute total amount including shipping fee
+    const itemsTotal = items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
+    const fee = typeof tenant?.shippingFee === "number" ? tenant.shippingFee : 15000;
+    const threshold = typeof tenant?.shippingFreeThreshold === "number" ? tenant.shippingFreeThreshold : 500000;
+    const shipping = itemsTotal >= threshold ? 0 : fee;
+    const total = itemsTotal + shipping;
 
     // 3. Generate tracking order number
     const orderNumber = `E-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
