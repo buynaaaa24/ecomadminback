@@ -174,9 +174,11 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     if (!zakhialgiinDugaar || !dun) {
       res.status(400).json({ error: "zakhialgiinDugaar and dun are required" }); return;
     }
-    const invoice_code = t.qpayInvoiceCode || process.env.QPAY_INVOICE_CODE || "";
-    if (!invoice_code) {
-      res.status(400).json({ error: "QPay invoice code not configured" }); return;
+    if (!t.qpayMerchantId) {
+      res.status(400).json({ error: "QPay merchant_id is not configured for this tenant" }); return;
+    }
+    if (!t.qpayBankAccount) {
+      res.status(400).json({ error: "QPay bank account is not configured for this tenant" }); return;
     }
 
     const host = process.env.SERVER_HOST ?? "103.236.194.106";
@@ -185,12 +187,20 @@ qpayRouter.post("/invoice", async (req, res, next) => {
 
     const token = await qpayToken(t.qpayUsername, t.qpayPassword);
     const invoicePayload = {
-      invoice_code,
-      sender_invoice_no:     zakhialgiinDugaar,
-      invoice_receiver_code: "terminal",
-      invoice_description:   tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+      merchant_id:           t.qpayMerchantId,
       amount:                dun,
+      currency:              "MNT",
+      description:           tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
+      mcc_code:              t.qpayMccCode || "5311",
       callback_url,
+      bank_accounts: [
+        {
+          account_bank_code: t.qpayBankName || "050000",
+          account_number:    t.qpayBankAccount,
+          account_name:      t.qpayBankAccountName || t.name,
+          is_default:        true,
+        }
+      ]
     };
 
     logToFile("Preparing request to QPay API", {
