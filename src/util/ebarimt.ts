@@ -47,7 +47,7 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
         name: item.name,
         barCode: "UNDEFINED",
         barCodeType: "UNDEFINED",
-        classificationCode: "5311",
+        classificationCode: "5020100",
         measureUnit: "шир",
         qty: qty.toFixed(2),
         unitPrice: unitPrice.toFixed(2),
