@@ -10,22 +10,38 @@ import path from "path";
 const require = createRequire(import.meta.url);
 
 // Patch mongoose.model to not throw on re-compilation (quickqpaypackv2/zevbackv2 call conn.model with schema repeatedly)
-const _origModel = mongoose.Connection.prototype.model;
-mongoose.Connection.prototype.model = function (name: string, schema?: any, ...args: any[]) {
-  if (schema && this.models[name]) {
-    return this.models[name];
-  }
-  return _origModel.call(this, name, schema, ...args);
-};
-// Also patch the default connection's model method
-const _origDefaultModel = mongoose.model.bind(mongoose);
-(mongoose as any).model = function (name: string, schema?: any, ...args: any[]) {
-  if (schema && mongoose.models[name]) {
-    return mongoose.models[name];
-  }
-  return _origDefaultModel(name, schema, ...args);
-};
-
+// Pre-register models that zevbackv2/quickqpaypackv2 will try to create on the same connection
+// to avoid "Cannot overwrite model once compiled" errors
+if (!mongoose.models.token) {
+  mongoose.model("token", new mongoose.Schema({
+    baiguullagiinId: String, barilgiinId: String, token: String,
+    turul: String, refreshToken: String, expires_in: Date, ognoo: Date,
+  }, { timestamps: true }));
+}
+if (!mongoose.models.QpayKhariltsagch) {
+  mongoose.model("QpayKhariltsagch", new mongoose.Schema({
+    type: String, register_number: String, baiguullagiinId: String,
+    name: String, first_name: String, last_name: String, business_name: String,
+    owner_last_name: String, owner_first_name: String, company_name: String,
+    mcc_code: String, merchant_id: String, merchant_idTrue: String, merchant_idFalse: String,
+    city: String, district: String, address: String, phone: String, email: String,
+    salbaruud: [mongoose.Schema.Types.Mixed],
+  }, { timestamps: true }));
+}
+if (!mongoose.models.QuickQpayObject) {
+  mongoose.model("QuickQpayObject", new mongoose.Schema({
+    gereeniiId: String, zogsooliinId: String, zogsoolUilchluulegch: mongoose.Schema.Types.Mixed,
+    baiguullagiinId: String, zakhialgiinDugaar: String, salbariinId: String,
+    tulsunEsekh: Boolean, ognoo: Date, qpay: mongoose.Schema.Types.Mixed,
+    payment_id: String, legacy_id: String, invoice_id: String,
+  }));
+}
+if (!mongoose.models.dugaarlalt) {
+  mongoose.model("dugaarlalt", new mongoose.Schema({
+    baiguullagiinId: String, barilgiinId: String, turul: String,
+    ognoo: Date, dugaar: Number,
+  }, { timestamps: true }));
+}
 const { qpayGargaya, qpayShalgay, qpayKhariltsagchUusgey, QuickQpayObject, QpayKhariltsagch } = require("quickqpaypackv2");
 
 function logToFile(message: string, data?: any) {
