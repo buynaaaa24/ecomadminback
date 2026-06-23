@@ -27,6 +27,7 @@ export const orderSchema = new Schema(
       },
     ],
     total: { type: Number, required: true },
+    shippingFee: { type: Number, default: 0 },
     paymentMethod: { type: String, required: true },
     paymentStatus: { type: String, default: "pending" }, // pending | paid | refunded
     orderStatus: { type: String, default: "pending" }, // pending | processing | delivered | cancelled

@@ -285,6 +285,7 @@ ordersRouter.post("/public", async (req, res, next) => {
       customerInfo,
       items: savedItems,
       total,
+      shippingFee: shipping,
       paymentMethod,
       paymentStatus,
       orderStatus: "pending",
