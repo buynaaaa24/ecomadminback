@@ -84,6 +84,8 @@ ordersRouter.post("/public", async (req, res, next) => {
       ebarimtKhoroo?: string;
       ebarimtEnabled?: boolean;
       ebarimtAutoSend?: boolean;
+      shippingFee?: number;
+      shippingFreeThreshold?: number;
     }>();
     const posUri = tenant?.posDbUri;
     const emUri = tenant?.emDbUri;
