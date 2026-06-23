@@ -29,7 +29,7 @@ const QpayKhariltsagchSchema = new mongoose.Schema({
   phone: String,
   email: String,
   salbaruud: [mongoose.Schema.Types.Mixed],
-}, { timestamps: true });
+}, { timestamps: true, collection: "QpayKhariltsagch" });
 const QpayKhariltsagch = mongoose.models.QpayKhariltsagch ?? mongoose.model("QpayKhariltsagch", QpayKhariltsagchSchema);
 
 const QuickQpayObjectSchema = new mongoose.Schema({
@@ -45,7 +45,7 @@ const QuickQpayObjectSchema = new mongoose.Schema({
   payment_id: String,
   legacy_id: String,
   invoice_id: String,
-});
+}, { collection: "QuickQpayObject" });
 const QuickQpayObject = mongoose.models.QuickQpayObject ?? mongoose.model("QuickQpayObject", QuickQpayObjectSchema);
 
 const QpayTokenSchema = new mongoose.Schema({
@@ -54,7 +54,7 @@ const QpayTokenSchema = new mongoose.Schema({
   refreshToken: String,
   expires_in: Date,
   ognoo: Date,
-}, { timestamps: true });
+}, { timestamps: true, collection: "token" });
 const QpayToken = mongoose.models.qpaytoken ?? mongoose.model("qpaytoken", QpayTokenSchema);
 
 const QpayInvoiceSchema = new mongoose.Schema({
