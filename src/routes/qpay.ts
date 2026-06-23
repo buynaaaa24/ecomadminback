@@ -63,6 +63,7 @@ const QpayInvoiceSchema = new mongoose.Schema({
   invoiceId:         String,
   qpayData:          mongoose.Schema.Types.Mixed,
   paid:              { type: Boolean, default: false },
+  amount:            { type: Number, default: 0 },
   createdAt:         { type: Date, default: Date.now },
 });
 const QpayInvoice = mongoose.models.QpayInvoice ?? mongoose.model("QpayInvoice", QpayInvoiceSchema);
@@ -221,9 +222,13 @@ qpayRouter.post("/invoice", async (req, res, next) => {
     const callback_url = `http://${host}:${port}/api/qpay/callback/${String(tenant._id)}/${zakhialgiinDugaar}`;
 
     const token = await qpayToken(t.qpayUsername, t.qpayPassword, t.qpayTerminalId);
+    const amount = Number(dun);
+    if (!amount || amount <= 0) {
+      res.status(400).json({ error: "Invalid amount" }); return;
+    }
     const invoicePayload = {
       merchant_id:           t.qpayMerchantId,
-      amount:                dun,
+      amount,
       currency:              "MNT",
       description:           tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
       mcc_code:              t.qpayMccCode || "5311",
@@ -255,7 +260,7 @@ qpayRouter.post("/invoice", async (req, res, next) => {
 
     await QpayInvoice.findOneAndUpdate(
       { zakhialgiinDugaar },
-      { tenantId: String(tenant._id), invoiceId: data.id, qpayData: data, paid: false },
+      { tenantId: String(tenant._id), invoiceId: data.id ?? data.invoice_id, qpayData: data, paid: false, amount },
       { upsert: true, new: true },
     );
 
@@ -275,7 +280,34 @@ qpayRouter.post("/invoice", async (req, res, next) => {
 
 qpayRouter.get("/callback/:tenantId/:zakhialgiinDugaar", async (req, res, next) => {
   try {
-    const { zakhialgiinDugaar } = req.params;
+    const { tenantId, zakhialgiinDugaar } = req.params;
+    const invoice = await QpayInvoice.findOne({ zakhialgiinDugaar }).lean() as any;
+    if (!invoice) { res.sendStatus(404); return; }
+
+    // Verify payment with QPay
+    const tenant = await Tenant.findById(tenantId) as any;
+    if (tenant) {
+      try {
+        const token = await qpayToken(tenant.qpayUsername, tenant.qpayPassword, tenant.qpayTerminalId);
+        const invoiceId = invoice.invoiceId;
+        const { data: checkData } = await axios.post(
+          `${QPAY_BASE}/v2/payment/check`,
+          JSON.stringify({ object_type: "INVOICE", object_id: invoiceId }),
+          { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
+        );
+        logToFile("QPay callback payment check", { zakhialgiinDugaar, checkData });
+        // Verify amount matches
+        const paidAmount = Number(checkData?.rows?.[0]?.payment_amount ?? checkData?.paid_amount ?? 0);
+        const invoiceAmount = Number(invoice.amount ?? 0);
+        if (paidAmount > 0 && invoiceAmount > 0 && paidAmount !== invoiceAmount) {
+          logToFile("QPay amount mismatch", { paidAmount, invoiceAmount, zakhialgiinDugaar });
+          res.status(400).json({ error: "Amount mismatch" }); return;
+        }
+      } catch (verifyErr: any) {
+        logToFile("QPay callback verification failed", verifyErr?.message);
+      }
+    }
+
     await QpayInvoice.findOneAndUpdate({ zakhialgiinDugaar }, { paid: true });
     (req as any).app.get("socketio")?.emit("qpay" + zakhialgiinDugaar);
     res.sendStatus(200);
