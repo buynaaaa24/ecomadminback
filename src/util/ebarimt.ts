@@ -2,6 +2,7 @@ import axios from "axios";
 import { Ebarimt } from "../models/Ebarimt.js";
 
 const EBARIMT_URL = process.env.EBARIMT_URL ?? "http://103.143.40.43:7080";
+const EBARIMT_TEST_URL = process.env.EBARIMT_TEST_URL ?? "http://103.236.194.50:7080";
 
 function getDistrictCode(districtName: string): string {
   if (!districtName) return "12";
@@ -89,8 +90,10 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       }],
     };
 
-    const requestUrl = `${EBARIMT_URL.replace(/\/$/, "")}/rest/receipt`;
-    console.log(`[Ebarimt] Issuing receipt: ${requestUrl}`, JSON.stringify(payload));
+    const isTest = tenant.ebarimtTest === true || process.env.NODE_ENV !== "production";
+    const baseUrl = (isTest ? EBARIMT_TEST_URL : EBARIMT_URL).replace(/\/$/, "");
+    const requestUrl = `${baseUrl}/rest/receipt`;
+    console.log(`[Ebarimt] Issuing receipt: ${requestUrl} (test=${isTest})`, JSON.stringify(payload));
 
     const response = await axios.post(requestUrl, payload, {
       headers: { "Content-Type": "application/json" },
