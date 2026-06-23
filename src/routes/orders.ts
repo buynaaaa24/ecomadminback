@@ -52,7 +52,7 @@ async function resolveProductModel(tenantId: string | null | undefined): Promise
 
 ordersRouter.post("/public", async (req, res, next) => {
   try {
-    const { tenantId, customerInfo, items, paymentMethod } = req.body;
+    const { tenantId, customerInfo, items, paymentMethod, ebarimtType, customerTin } = req.body;
 
     if (!tenantId) {
       res.status(400).json({ error: "tenantId is required" });
