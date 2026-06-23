@@ -9,8 +9,6 @@ import path from "path";
 
 const require = createRequire(import.meta.url);
 
-// Allow quickqpaypackv2/zevbackv2 to call mongoose.model() with the same name repeatedly
-mongoose.set("overwriteModels", true);
 
 const { qpayGargaya, qpayShalgay, qpayKhariltsagchUusgey, QuickQpayObject, QpayKhariltsagch } = require("quickqpaypackv2");
 
