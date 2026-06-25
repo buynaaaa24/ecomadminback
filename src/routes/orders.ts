@@ -258,6 +258,7 @@ ordersRouter.post("/public", async (req, res, next) => {
     });
 
     // Generate Ebarimt: either auto-send or user explicitly chose type from frontend
+    console.log(`[Ebarimt Debug] paymentStatus=${paymentStatus} ebarimtEnabled=${tenant?.ebarimtEnabled} ebarimtAutoSend=${tenant?.ebarimtAutoSend} ebarimtType=${ebarimtType}`);
     const shouldIssueEbarimt = paymentStatus === "paid" && tenant?.ebarimtEnabled && (tenant?.ebarimtAutoSend || ebarimtType);
     if (shouldIssueEbarimt) {
       try {
