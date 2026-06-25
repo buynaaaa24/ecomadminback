@@ -61,7 +61,7 @@ async function searchDuckDuckGoImages(query: string, perPage = 5): Promise<strin
     }
 
     // Extract cookies from the first response
-    const setCookie = tokenRes.headers["set-cookie"];
+    const setCookie = tokenRes.headers["set-cookie"] as string | string[] | undefined;
     let cookies = "";
     if (Array.isArray(setCookie)) {
       cookies = setCookie.map((c) => c.split(";")[0]).join("; ");
