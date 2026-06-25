@@ -62,11 +62,12 @@ async function searchDuckDuckGoImages(query: string, perPage = 5): Promise<strin
 
     // Extract cookies from the first response
     const setCookie = tokenRes.headers["set-cookie"];
-    const cookies = Array.isArray(setCookie)
-      ? setCookie.map((c) => c.split(";")[0]).join("; ")
-      : setCookie
-        ? setCookie.split(";")[0]
-        : "";
+    let cookies = "";
+    if (Array.isArray(setCookie)) {
+      cookies = setCookie.map((c) => c.split(";")[0]).join("; ");
+    } else if (typeof setCookie === "string") {
+      cookies = setCookie.split(";")[0];
+    }
 
     // 2. Query the internal image JSON endpoint
     const imgRes = await axios.get("https://duckduckgo.com/i.js", {
