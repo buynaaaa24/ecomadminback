@@ -42,7 +42,7 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
         totalVAT = Math.round((totalVAT + Number.EPSILON) * 100000) / 100000;
       }
 
-      return {
+      const itemObj: any = {
         uramshuulaliinBaraaEsekh: false,
         name: item.name,
         barCode: "UNDEFINED",
@@ -55,6 +55,10 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
         totalCityTax: 0,
         totalAmount,
       };
+      if (!nuatTulukhEsekh) {
+        itemObj.taxProductCode = item.taxProductCode || "5020100";
+      }
+      return itemObj;
     });
 
     const totalAmount = items.reduce((sum: number, x: any) => sum + x.totalAmount, 0);
