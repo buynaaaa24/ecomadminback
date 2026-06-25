@@ -2,7 +2,7 @@ import { Router } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
-import axios from "axios";
+import { sendSms } from "../util/sms.js";
 import { CustomerUser } from "../models/CustomerUser.js";
 import { Tenant } from "../models/Tenant.js";
 import { Order } from "../models/Order.js";
@@ -92,11 +92,8 @@ usersRouter.post("/otp/send", async (req, res, next) => {
     const key = otpKey(phone.trim(), tenantId);
     otpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
 
-    const smsBackUrl = process.env.UDIRDLAGA_BACK_URL ?? "http://103.236.194.107:8080";
     try {
-      await axios.post(`${smsBackUrl}/smsIlgeeye`, {
-        msgnuud: [{ to: phone.trim(), text: `Таны нэвтрэх OTP код: ${code}. 5 минутын дараа хүчингүй болно.` }],
-      });
+      await sendSms(phone.trim(), `Таны нэвтрэх OTP код: ${code}. 5 минутын дараа хүчингүй болно.`);
     } catch (smsErr: any) {
       console.error("[OTP] SMS send failed:", smsErr.message);
       res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" });
