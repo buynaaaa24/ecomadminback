@@ -26,18 +26,47 @@ async function searchDuckDuckGoImages(query: string, perPage = 5): Promise<strin
       params: { q: query, iax: "images", ia: "images" },
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept: "text/html",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
       },
       timeout: 10000,
     });
 
     const html = tokenRes.data;
-    const vqdMatch = html.match(/vqd=\"?([^"\s]+)\"?/);
-    const vqd = vqdMatch ? vqdMatch[1] : "";
+
+    // Try multiple patterns to extract vqd token
+    let vqd = "";
+    const vqdPatterns = [
+      /vqd=["']([^"']+)["']/,
+      /vqd=([^&\s]+)/,
+      /"vqd":"([^"]+)"/,
+      /'vqd':'([^']+)'/,
+      /vqd\s*=\s*["']([^"']+)["']/,
+    ];
+
+    for (const pattern of vqdPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        vqd = match[1];
+        break;
+      }
+    }
 
     if (!vqd) {
+      console.error("[DuckDuckGo Search] Could not extract vqd. HTML snippet:", html.slice(0, 500));
       throw new Error("Could not extract DuckDuckGo vqd token");
     }
+
+    // Extract cookies from the first response
+    const setCookie = tokenRes.headers["set-cookie"];
+    const cookies = Array.isArray(setCookie)
+      ? setCookie.map((c) => c.split(";")[0]).join("; ")
+      : setCookie
+        ? setCookie.split(";")[0]
+        : "";
 
     // 2. Query the internal image JSON endpoint
     const imgRes = await axios.get("https://duckduckgo.com/i.js", {
@@ -51,7 +80,10 @@ async function searchDuckDuckGoImages(query: string, perPage = 5): Promise<strin
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         Referer: "https://duckduckgo.com/",
-        Accept: "application/json",
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-Requested-With": "XMLHttpRequest",
+        ...(cookies ? { Cookie: cookies } : {}),
       },
       timeout: 10000,
     });
@@ -65,22 +97,137 @@ async function searchDuckDuckGoImages(query: string, perPage = 5): Promise<strin
     return urls;
   } catch (err: any) {
     console.error("[DuckDuckGo Search] Failed:", err.message || err);
-    throw new Error("DuckDuckGo image search failed. You can switch to Unsplash by setting UNSPLASH_ACCESS_KEY in your .env");
+    if (err.response) {
+      console.error("[DuckDuckGo Search] Status:", err.response.status);
+      console.error("[DuckDuckGo Search] Data:", JSON.stringify(err.response.data).slice(0, 500));
+    }
+    throw new Error("DuckDuckGo image search failed");
   }
 }
 
 /**
- * Auto-detect which provider to use:
- * - If UNSPLASH_ACCESS_KEY is set → Unsplash (higher quality, more reliable)
- * - Otherwise → DuckDuckGo (zero setup, no API key)
+ * Search images via Bing — no API key required.
+ * Parses image metadata (murl) from the search results HTML.
  */
-async function searchImages(query: string, perPage = 5): Promise<{ urls: string[]; source: string }> {
+async function searchBingImages(query: string, perPage = 5): Promise<string[]> {
+  try {
+    const res = await axios.get("https://www.bing.com/images/search", {
+      params: { q: query, form: "HDRSC2", first: "1" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+      },
+      timeout: 10000,
+    });
+
+    const html = res.data as string;
+    const urls: string[] = [];
+    const seen = new Set<string>();
+
+    // Bing embeds image data with "murl":"original_url"
+    const murlRegex = /"murl"\s*:\s*"([^"]+)"/g;
+    let match;
+    while ((match = murlRegex.exec(html)) !== null) {
+      const url = match[1].replace(/\\u002f/g, "/").replace(/\\/g, "");
+      if (url.startsWith("http") && !seen.has(url)) {
+        seen.add(url);
+        urls.push(url);
+      }
+    }
+
+    return urls.slice(0, perPage);
+  } catch (err: any) {
+    console.error("[Bing Search] Failed:", err.message || err);
+    return [];
+  }
+}
+
+/**
+ * Search images via Wikimedia Commons — no API key required.
+ * Uses the public MediaWiki API.
+ */
+async function searchWikimediaImages(query: string, perPage = 5): Promise<string[]> {
+  try {
+    const res = await axios.get("https://commons.wikimedia.org/w/api.php", {
+      params: {
+        action: "query",
+        list: "search",
+        srsearch: query,
+        srnamespace: 6,
+        format: "json",
+        origin: "*",
+        srlimit: perPage,
+      },
+      timeout: 10000,
+    });
+
+    const results = res.data?.query?.search || [];
+    return results
+      .map((r: any) => {
+        const title = r.title.replace("File:", "");
+        return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(title)}?width=800`;
+      })
+      .filter((url: string) => url.startsWith("http"));
+  } catch (err: any) {
+    console.error("[Wikimedia Search] Failed:", err.message || err);
+    return [];
+  }
+}
+
+/**
+ * Search images across multiple free providers (no API keys needed).
+ * Queries DuckDuckGo, Bing, and Wikimedia Commons in parallel,
+ * then merges and deduplicates results for maximum variety.
+ */
+async function searchImages(query: string, perPage = 5): Promise<{ urls: string[]; source: string; sources?: Record<string, number> }> {
   if (UNSPLASH_ACCESS_KEY) {
     const urls = await searchUnsplashImages(query, perPage);
     return { urls, source: "unsplash" };
   }
-  const urls = await searchDuckDuckGoImages(query, perPage);
-  return { urls, source: "duckduckgo" };
+
+  // Query multiple free sources in parallel for maximum variety
+  const [ddgUrls, bingUrls, wikiUrls] = await Promise.all([
+    searchDuckDuckGoImages(query, perPage).catch(() => [] as string[]),
+    searchBingImages(query, perPage),
+    searchWikimediaImages(query, perPage),
+  ]);
+
+  // Merge and deduplicate, interleaving sources for variety
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  const sources: Record<string, number> = {
+    duckduckgo: ddgUrls.length,
+    bing: bingUrls.length,
+    wikimedia: wikiUrls.length,
+  };
+
+  // Interleave: take 1 from each source at a time
+  let idx = 0;
+  const maxResults = perPage * 2;
+  while (merged.length < maxResults) {
+    let added = false;
+    for (const list of [ddgUrls, bingUrls, wikiUrls]) {
+      if (idx < list.length) {
+        const url = list[idx];
+        if (!seen.has(url)) {
+          seen.add(url);
+          merged.push(url);
+          added = true;
+          if (merged.length >= maxResults) break;
+        }
+      }
+    }
+    if (!added) break;
+    idx++;
+  }
+
+  if (merged.length === 0) {
+    throw new Error("All image search providers failed. No results found.");
+  }
+
+  return { urls: merged, source: "multi", sources };
 }
 
 async function resolveProductModel(tenantId: string | null | undefined) {
