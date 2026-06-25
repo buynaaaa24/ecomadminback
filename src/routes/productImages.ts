@@ -178,24 +178,49 @@ async function searchWikimediaImages(query: string, perPage = 5): Promise<string
 }
 
 /**
- * Search images across multiple free providers (no API keys needed).
- * Queries DuckDuckGo, Bing, and Wikimedia Commons in parallel,
- * then merges and deduplicates results for maximum variety.
+ * Search images across multiple providers.
+ * Priority order:
+ * 1. Pexels (free API key, no developer confirmation)
+ * 2. Pixabay (free API key, no developer confirmation)
+ * 3. Unsplash (if key configured)
+ * 4. Scrapers (DuckDuckGo, Bing, Wikimedia) — unreliable on datacenter IPs
  */
 async function searchImages(query: string, perPage = 5): Promise<{ urls: string[]; source: string; sources?: Record<string, number> }> {
-  if (UNSPLASH_ACCESS_KEY) {
-    const urls = await searchUnsplashImages(query, perPage);
-    return { urls, source: "unsplash" };
+  // 1. Try reliable API sources first
+  const [pexelsUrls, pixabayUrls, unsplashUrls] = await Promise.all([
+    searchPexelsImages(query, perPage),
+    searchPixabayImages(query, perPage),
+    UNSPLASH_ACCESS_KEY ? searchUnsplashImages(query, perPage).catch(() => [] as string[]) : Promise.resolve([] as string[]),
+  ]);
+
+  const apiUrls: string[] = [];
+  const seenApi = new Set<string>();
+  for (const url of [...pexelsUrls, ...pixabayUrls, ...unsplashUrls]) {
+    if (!seenApi.has(url)) {
+      seenApi.add(url);
+      apiUrls.push(url);
+    }
   }
 
-  // Query multiple free sources in parallel for maximum variety
+  if (apiUrls.length > 0) {
+    return {
+      urls: apiUrls.slice(0, perPage * 2),
+      source: "api",
+      sources: {
+        pexels: pexelsUrls.length,
+        pixabay: pixabayUrls.length,
+        unsplash: unsplashUrls.length,
+      },
+    };
+  }
+
+  // 2. Fall back to scrapers (often blocked on server IPs)
   const [ddgUrls, bingUrls, wikiUrls] = await Promise.all([
     searchDuckDuckGoImages(query, perPage).catch(() => [] as string[]),
     searchBingImages(query, perPage),
     searchWikimediaImages(query, perPage),
   ]);
 
-  // Merge and deduplicate, interleaving sources for variety
   const seen = new Set<string>();
   const merged: string[] = [];
   const sources: Record<string, number> = {
@@ -204,7 +229,6 @@ async function searchImages(query: string, perPage = 5): Promise<{ urls: string[
     wikimedia: wikiUrls.length,
   };
 
-  // Interleave: take 1 from each source at a time
   let idx = 0;
   const maxResults = perPage * 2;
   while (merged.length < maxResults) {
@@ -225,7 +249,11 @@ async function searchImages(query: string, perPage = 5): Promise<{ urls: string[
   }
 
   if (merged.length === 0) {
-    throw new Error("All image search providers failed. No results found.");
+    throw new Error(
+      "All image search providers failed. " +
+      "Get a free API key from Pexels (pexels.com/api) or Pixabay (pixabay.com/api/docs) — " +
+      "no developer account confirmation needed. Set PEXELS_API_KEY or PIXABAY_API_KEY in your .env"
+    );
   }
 
   return { urls: merged, source: "multi", sources };
@@ -241,6 +269,47 @@ async function resolveProductModel(tenantId: string | null | undefined) {
     }
   }
   return { Model: Product, useTenantFilter: true };
+}
+
+async function searchPexelsImages(query: string, perPage = 5): Promise<string[]> {
+  const apiKey = process.env.PEXELS_API_KEY || "";
+  if (!apiKey) return [];
+
+  try {
+    const res = await axios.get("https://api.pexels.com/v1/search", {
+      params: { query, per_page: perPage, orientation: "all" },
+      headers: { Authorization: apiKey },
+      timeout: 10000,
+    });
+
+    const photos = res.data?.photos || [];
+    return photos
+      .map((p: any) => p.src?.medium || p.src?.small || p.src?.large || p.src?.original)
+      .filter((url: string) => url && url.startsWith("http"));
+  } catch (err: any) {
+    console.error("[Pexels Search] Failed:", err.message || err);
+    return [];
+  }
+}
+
+async function searchPixabayImages(query: string, perPage = 5): Promise<string[]> {
+  const apiKey = process.env.PIXABAY_API_KEY || "";
+  if (!apiKey) return [];
+
+  try {
+    const res = await axios.get("https://pixabay.com/api/", {
+      params: { key: apiKey, q: query, per_page: perPage, image_type: "photo", safesearch: "true" },
+      timeout: 10000,
+    });
+
+    const hits = res.data?.hits || [];
+    return hits
+      .map((h: any) => h.webformatURL || h.largeImageURL || h.previewURL)
+      .filter((url: string) => url && url.startsWith("http"));
+  } catch (err: any) {
+    console.error("[Pixabay Search] Failed:", err.message || err);
+    return [];
+  }
 }
 
 async function searchUnsplashImages(query: string, perPage = 5): Promise<string[]> {
