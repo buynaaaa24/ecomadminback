@@ -4,20 +4,12 @@ import { Ebarimt } from "../models/Ebarimt.js";
 const EBARIMT_URL = process.env.EBARIMT_URL ?? "http://103.143.40.43:7080";
 const EBARIMT_TEST_URL = process.env.EBARIMT_TEST_URL ?? "http://103.236.194.50:7080";
 
-function getDistrictCode(districtName: string): string {
-  if (!districtName) return "1200";
-  const name = districtName.toLowerCase().trim();
-  if (name.includes("сүхбаатар") || name.includes("sukhbaatar")) return "1200";
-  if (name.includes("баянзүрх") || name.includes("bayanzurkh")) return "1300";
-  if (name.includes("чингэлтэй") || name.includes("chingeltei")) return "1400";
-  if (name.includes("баянгол") || name.includes("bayangol")) return "1500";
-  if (name.includes("хан-уул") || name.includes("khan-uul") || name.includes("khan uul")) return "1600";
-  if (name.includes("сонгинохайрхан") || name.includes("songinokhairkhan")) return "1700";
-  if (name.includes("налайх") || name.includes("nalaikh")) return "1800";
-  if (name.includes("багануур") || name.includes("baganuur")) return "1900";
-  if (name.includes("багахангай") || name.includes("bagakhangai")) return "2000";
-  if (/^\d{4}$/.test(districtName)) return districtName;
-  return "1200";
+function getDistrictCode(districtKod: string, khorooKod: string): string {
+  const d = (districtKod || "").trim().padStart(2, "0");
+  const k = (khorooKod || "01").trim().padStart(2, "0");
+  const combined = d + k;
+  if (/^\d{4}$/.test(combined)) return combined;
+  return "2501";
 }
 
 export async function issueEbarimt(order: any, tenant: any, receiptType: string = "B2C_RECEIPT", customerTin: string = ""): Promise<any> {
@@ -27,7 +19,7 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       throw new Error("Ebarimt TIN (ebarimtTin) is not configured for this tenant");
     }
 
-    const districtCode = getDistrictCode(tenant.ebarimtDistrict || "");
+    const districtCode = getDistrictCode(tenant.ebarimtDistrict || "", tenant.ebarimtKhoroo || "01");
     const nuatTulukhEsekh = tenant.ebarimtVat === true;
 
     // Map order items to ebarimt items
