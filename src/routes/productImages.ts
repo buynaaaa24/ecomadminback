@@ -177,6 +177,46 @@ async function searchWikimediaImages(query: string, perPage = 5): Promise<string
   }
 }
 
+function isProbablyEnglish(text: string): boolean {
+  const latin = text.match(/[a-zA-Z\s0-9\-_.,!?"'()]/g) || [];
+  return latin.length / text.length > 0.8;
+}
+
+async function translateToEnglish(text: string): Promise<string> {
+  if (isProbablyEnglish(text)) return text;
+
+  try {
+    const res = await axios.get("https://api.mymemory.translated.net/get", {
+      params: { q: text, langpair: "mn|en" },
+      timeout: 8000,
+    });
+    const translated = res.data?.responseData?.translatedText;
+    if (translated && translated !== text && !translated.includes("MYMEMORY")) {
+      console.log(`[Translate] "${text}" -> "${translated}"`);
+      return translated;
+    }
+  } catch (err: any) {
+    console.error("[MyMemory Translate] Failed:", err.message || err);
+  }
+
+  try {
+    const res = await axios.get("https://translate.googleapis.com/translate_a/single", {
+      params: { client: "gtx", sl: "auto", tl: "en", dt: "t", q: text },
+      timeout: 8000,
+    });
+    const translated = res.data?.[0]?.[0]?.[0];
+    if (translated && translated !== text) {
+      console.log(`[Translate] "${text}" -> "${translated}"`);
+      return translated;
+    }
+  } catch (err: any) {
+    console.error("[Google Translate] Failed:", err.message || err);
+  }
+
+  console.log(`[Translate] Fallback — using original: "${text}"`);
+  return text;
+}
+
 /**
  * Search images across multiple providers.
  * Priority order:
@@ -186,11 +226,13 @@ async function searchWikimediaImages(query: string, perPage = 5): Promise<string
  * 4. Scrapers (DuckDuckGo, Bing, Wikimedia) — unreliable on datacenter IPs
  */
 async function searchImages(query: string, perPage = 5): Promise<{ urls: string[]; source: string; sources?: Record<string, number> }> {
+  const englishQuery = await translateToEnglish(query);
+
   // 1. Try reliable API sources first
   const [pexelsUrls, pixabayUrls, unsplashUrls] = await Promise.all([
-    searchPexelsImages(query, perPage),
-    searchPixabayImages(query, perPage),
-    UNSPLASH_ACCESS_KEY ? searchUnsplashImages(query, perPage).catch(() => [] as string[]) : Promise.resolve([] as string[]),
+    searchPexelsImages(englishQuery, perPage),
+    searchPixabayImages(englishQuery, perPage),
+    UNSPLASH_ACCESS_KEY ? searchUnsplashImages(englishQuery, perPage).catch(() => [] as string[]) : Promise.resolve([] as string[]),
   ]);
 
   const apiUrls: string[] = [];
