@@ -123,7 +123,8 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
 
     return ebarimtDoc;
   } catch (error: any) {
-    console.error("[Ebarimt Error]:", error.message || error);
+    const detail = error?.response?.data ? JSON.stringify(error.response.data) : error.message;
+    console.error("[Ebarimt Error]:", detail);
     throw error;
   }
 }
