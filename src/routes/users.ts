@@ -434,3 +434,58 @@ usersRouter.get("/orders", async (req, res, next) => {
     next(e);
   }
 });
+
+// ── PATCH /api/users/me ───────────────────────────────────────────────────────
+
+usersRouter.patch("/me", async (req, res, next) => {
+  try {
+    const token = extractBearer(req.headers.authorization);
+    if (!token) { res.status(401).json({ error: "Нэвтрэх шаардлагатай" }); return; }
+    const payload = verifyAccess(token);
+    if (!payload) { res.status(401).json({ error: "Token хүчингүй" }); return; }
+
+    const { firstName, lastName, email, phone } = req.body as {
+      firstName?: string; lastName?: string; email?: string; phone?: string;
+    };
+    const update: Record<string, string> = {};
+    if (firstName?.trim()) update.firstName = firstName.trim();
+    if (lastName?.trim()) update.lastName = lastName.trim();
+    if (email?.trim()) update.email = email.trim().toLowerCase();
+    if (phone?.trim()) update.phone = phone.trim();
+
+    const user = await CustomerUser.findByIdAndUpdate(
+      payload.sub, { $set: update }, { new: true }
+    ).lean();
+    if (!user) { res.status(404).json({ error: "Хэрэглэгч олдсонгүй" }); return; }
+
+    res.json({
+      id: String((user as any)._id),
+      email: user.email,
+      phone: user.phone,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── GET /api/users/ebarimt/:orderNumber ──────────────────────────────────────
+
+usersRouter.get("/ebarimt/:orderNumber", async (req, res, next) => {
+  try {
+    const token = extractBearer(req.headers.authorization);
+    if (!token) { res.status(401).json({ error: "Нэвтрэх шаардлагатай" }); return; }
+    const payload = verifyAccess(token);
+    if (!payload) { res.status(401).json({ error: "Token хүчингүй" }); return; }
+
+    const { orderNumber } = req.params;
+    const { Ebarimt } = await import("../models/Ebarimt.js");
+    const doc = await Ebarimt.findOne({ orderNumber }).lean();
+    if (!doc) { res.status(404).json({ error: "Эбаримт олдсонгүй" }); return; }
+
+    res.json(serializeLean(doc as Record<string, unknown>));
+  } catch (e) {
+    next(e);
+  }
+});
