@@ -92,6 +92,7 @@ configRouter.get("/", async (req, res, next) => {
           { type: "CategoryList", props: {} },
           { type: "ProductGrid", props: { title: "Шинэ бараа", isNew: true, limit: 8 } },
           { type: "ProductGrid", props: { title: "Хямдралтай", isSale: true, limit: 8 } },
+          { type: "ProductGrid", props: { title: "Бүх бүтээгдэхүүн", limit: 12 } },
           { type: "GroceryBento", props: { tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [], sectionTitle: t.bentoTitle ?? "" } },
           { type: "BrandList", props: {} },
         ],
