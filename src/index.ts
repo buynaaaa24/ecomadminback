@@ -13,6 +13,7 @@ import { configRouter } from "./routes/config.js";
 import { tenantsRouter } from "./routes/tenants.js";
 import { adminUsersRouter } from "./routes/adminUsers.js";
 import { productsRouter } from "./routes/products.js";
+import { productImagesRouter } from "./routes/productImages.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { ordersRouter } from "./routes/orders.js";
 import { qpayRouter } from "./routes/qpay.js";
@@ -68,6 +69,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/tenants", tenantsRouter);
 app.use("/api/admin-users", adminUsersRouter);
 app.use("/api/products", productsRouter);
+app.use("/api/products", productImagesRouter);
 app.use("/api/categories", categoriesRouter);
 
 app.use(notFoundHandler);
