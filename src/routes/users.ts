@@ -2,12 +2,25 @@ import { Router } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
+import axios from "axios";
 import { CustomerUser } from "../models/CustomerUser.js";
 import { Tenant } from "../models/Tenant.js";
 import { Order } from "../models/Order.js";
 import { getOrderModel } from "../models/orderSchema.js";
 import { getTenantConnection } from "../db.js";
 import { serializeLean } from "../util/serialize.js";
+
+// ── OTP in-memory store ──────────────────────────────────────────────────────
+const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const otpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+
+function generateOtp(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function otpKey(phone: string, tenantId: string | null): string {
+  return `${tenantId ?? "null"}:${phone}`;
+}
 
 export const usersRouter = Router();
 
@@ -64,6 +77,116 @@ async function resolveOrderModel(tenantId: string | null) {
   }
   return { Model: Order, useTenantFilter: true };
 }
+
+// ── POST /api/users/otp/send ─────────────────────────────────────────────────
+
+usersRouter.post("/otp/send", async (req, res, next) => {
+  try {
+    const { phone } = req.body as { phone?: string };
+    if (!phone) {
+      res.status(400).json({ error: "Утасны дугаар шаардлагатай" });
+      return;
+    }
+    const tenantId = resolveTenantId(req);
+    const code = generateOtp();
+    const key = otpKey(phone.trim(), tenantId);
+    otpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
+
+    const smsBackUrl = process.env.UDIRDLAGA_BACK_URL ?? "http://103.236.194.107:8080";
+    try {
+      await axios.post(`${smsBackUrl}/smsIlgeeye`, {
+        msgnuud: [{ to: phone.trim(), text: `Таны нэвтрэх OTP код: ${code}. 5 минутын дараа хүчингүй болно.` }],
+      });
+    } catch (smsErr: any) {
+      console.error("[OTP] SMS send failed:", smsErr.message);
+      res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" });
+      return;
+    }
+
+    console.log(`[OTP] Sent to ${phone} (tenantId=${tenantId})`);
+    res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/users/otp/verify ───────────────────────────────────────────────
+
+usersRouter.post("/otp/verify", async (req, res, next) => {
+  try {
+    const { phone, code, firstName, lastName } = req.body as {
+      phone?: string;
+      code?: string;
+      firstName?: string;
+      lastName?: string;
+    };
+
+    if (!phone || !code) {
+      res.status(400).json({ error: "Утасны дугаар болон OTP код шаардлагатай" });
+      return;
+    }
+
+    const tenantId = resolveTenantId(req);
+    const key = otpKey(phone.trim(), tenantId);
+    const entry = otpStore.get(key);
+
+    if (!entry || entry.code !== code.trim()) {
+      res.status(401).json({ error: "OTP код буруу байна" });
+      return;
+    }
+    if (Date.now() > entry.expiresAt) {
+      otpStore.delete(key);
+      res.status(401).json({ error: "OTP кодны хугацаа дууссан байна" });
+      return;
+    }
+    otpStore.delete(key);
+
+    // Find or create user by phone
+    let user = await CustomerUser.findOne({
+      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      phone: phone.trim(),
+    });
+
+    if (!user) {
+      // Auto-register with phone
+      const tmpHash = await bcrypt.hash(generateOtp(), 10);
+      user = await CustomerUser.create({
+        tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+        phone: phone.trim(),
+        email: `${phone.trim()}@phone.local`,
+        passwordHash: tmpHash,
+        firstName: firstName?.trim() || phone.trim(),
+        lastName: lastName?.trim() || "",
+        refreshTokens: [],
+      });
+    }
+
+    if (user.status !== "active") {
+      res.status(403).json({ error: "Бүртгэл түр хаагдсан байна" });
+      return;
+    }
+
+    const accessToken = signAccess(String(user._id));
+    const newRefresh = signRefresh(String(user._id));
+    const tokens = (user.refreshTokens ?? []).slice(-4);
+    tokens.push(newRefresh);
+    await CustomerUser.findByIdAndUpdate(user._id, { refreshTokens: tokens, lastLogin: new Date() });
+
+    res.json({
+      accessToken,
+      refreshToken: newRefresh,
+      user: {
+        id: String(user._id),
+        email: user.email,
+        phone: user.phone,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
 
 // ── POST /api/users/register ─────────────────────────────────────────────────
 
