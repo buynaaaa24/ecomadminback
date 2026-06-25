@@ -84,6 +84,8 @@ ordersRouter.post("/public", async (req, res, next) => {
       ebarimtKhoroo?: string;
       ebarimtEnabled?: boolean;
       ebarimtAutoSend?: boolean;
+      ebarimtTest?: boolean;
+      ebarimtVat?: boolean;
       shippingFee?: number;
       shippingFreeThreshold?: number;
     }>();
