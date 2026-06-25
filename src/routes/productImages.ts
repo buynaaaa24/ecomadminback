@@ -120,7 +120,7 @@ async function downloadImage(url: string): Promise<{ buffer: Buffer; ext: string
   });
 
   const buffer = Buffer.from(response.data, "binary");
-  const contentType = response.headers["content-type"] || "";
+  const contentType = (response.headers["content-type"] as string) || "";
 
   let ext = ".jpg";
   if (contentType.includes("png")) ext = ".png";
