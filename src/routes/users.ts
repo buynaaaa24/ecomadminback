@@ -197,8 +197,8 @@ usersRouter.post("/register", async (req, res, next) => {
       lastName?: string;
     };
 
-    if (!email || !password || !firstName || !lastName) {
-      res.status(400).json({ error: "email, password, firstName, lastName шаардлагатай" });
+    if (!password || (!email && !phone)) {
+      res.status(400).json({ error: "Утасны дугаар эсвэл и-мэйл болон нууц үг шаардлагатай" });
       return;
     }
     if (password.length < 6) {
@@ -207,27 +207,32 @@ usersRouter.post("/register", async (req, res, next) => {
     }
 
     const tenantId = resolveTenantId(req);
-    const emailLower = email.trim().toLowerCase();
+    const resolvedPhone = phone?.trim() ?? "";
+    const emailLower = (email?.trim() || `${resolvedPhone}@phone.local`).toLowerCase();
+    const resolvedFirstName = firstName?.trim() || resolvedPhone;
+    const resolvedLastName = lastName?.trim() || "";
 
     const existing = await CustomerUser.findOne({
       tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
-      email: emailLower,
+      $or: [
+        { email: emailLower },
+        ...(resolvedPhone ? [{ phone: resolvedPhone }] : []),
+      ],
     });
     if (existing) {
-      res.status(409).json({ error: "Энэ и-мэйл хаягаар бүртгэл аль хэдийн байна" });
+      res.status(409).json({ error: "Энэ утас/и-мэйлээр бүртгэл аль хэдийн байна" });
       return;
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const refreshToken = signRefresh("tmp");
 
     const user = await CustomerUser.create({
       tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
       email: emailLower,
-      phone: phone ?? "",
+      phone: resolvedPhone,
       passwordHash,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
+      firstName: resolvedFirstName,
+      lastName: resolvedLastName,
       refreshTokens: [],
     });
 
