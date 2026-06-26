@@ -50,7 +50,6 @@ app.get("/", (_req, res) => {
 
 // Storefront public endpoints
 app.use("/api/config", configRouter);
-app.use("/api/brands", brandsRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/qpay", qpayRouter);
 app.use("/api/users", usersRouter);
@@ -73,6 +72,7 @@ app.use("/api/admin-users", adminUsersRouter);
 app.use("/api/products", productsRouter);
 app.use("/api/products", productImagesRouter);
 app.use("/api/categories", categoriesRouter);
+app.use("/api/brands", brandsRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

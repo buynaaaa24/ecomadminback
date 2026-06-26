@@ -1,89 +1,125 @@
 import { Router } from "express";
-import jwt from "jsonwebtoken";
-import { getProductModel } from "../models/productSchema.js";
+import mongoose from "mongoose";
+import { Brand } from "../models/Brand.js";
+import { getBrandModel } from "../models/brandSchema.js";
 import { Tenant } from "../models/Tenant.js";
 import { getTenantConnection } from "../db.js";
+import { requireAdminAuth } from "../middleware/adminAuth.js";
+import { serializeDocument, serializeLean } from "../util/serialize.js";
 
 export const brandsRouter = Router();
 
-/**
- * GET /api/brands
- * Returns unique brands derived from products for the active tenant.
- * Public endpoint — no auth required.
- */
-brandsRouter.get("/", async (req, res, next) => {
+async function resolveBrandModel(tenantId: string | null | undefined): Promise<{
+  Model: typeof Brand | ReturnType<typeof getBrandModel>;
+  useTenantFilter: boolean;
+}> {
+  if (tenantId) {
+    const tenant = await Tenant.findById(tenantId).lean<{ databaseUri?: string }>();
+    const uri = tenant?.databaseUri;
+    if (uri && (uri.startsWith("mongodb://") || uri.startsWith("mongodb+srv://"))) {
+      const conn = await getTenantConnection(uri);
+      return { Model: getBrandModel(conn), useTenantFilter: false };
+    }
+  }
+  return { Model: Brand, useTenantFilter: true };
+}
+
+// ── Public endpoint for storefront ────────────────────────────────────────────
+
+brandsRouter.get("/public", async (req, res, next) => {
   try {
-    const raw = (req.headers["x-tenant-host"] ?? req.headers.host ?? "") as string;
-    const host = raw.split(":")[0].toLowerCase().trim();
-    const querySlug = req.query.tenant as string | undefined;
-
-    let tenant: any = null;
-
-    // Optional: honour Bearer token tenant lookup
-    const rawAuth = req.headers.authorization;
-    if (rawAuth) {
-      const m = rawAuth.match(/^Bearer\s+(.+)$/i);
-      if (m && m[1]) {
-        try {
-          const secret = process.env.ADMIN_JWT_SECRET ?? "";
-          const payload = jwt.verify(m[1], secret) as jwt.JwtPayload;
-          if (payload.tenantId) {
-            tenant = await Tenant.findById(payload.tenantId).lean();
-          }
-        } catch { /* ignore */ }
-      }
-    }
-
-    if (!tenant && querySlug) {
-      tenant = await Tenant.findOne({ slug: querySlug.toLowerCase().trim(), status: "active" }).lean();
-    }
-
-    if (!tenant) {
-      const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
-      if (host && host !== "localhost" && host !== "127.0.0.1" && !isIp) {
-        tenant = await Tenant.findOne({ domain: host, status: "active" }).lean();
-        if (!tenant) {
-          const subSlug = host.split(".")[0];
-          tenant = await Tenant.findOne({ slug: subSlug, status: "active" }).lean();
-        }
-      } else {
-        tenant = await Tenant.findOne({ status: "active" }).lean();
-      }
-    }
-
-    if (!tenant) {
-      res.json([]);
+    const tenantId = req.query.tenantId as string | undefined;
+    if (!tenantId) {
+      res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "tenantId required" } });
       return;
     }
+    const { Model, useTenantFilter } = await resolveBrandModel(tenantId);
+    const filter = useTenantFilter ? { tenantId, status: "active" } : { status: "active" };
+    const list = await Model.find(filter).sort({ name: 1 }).lean();
+    res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
+  } catch (e) {
+    next(e);
+  }
+});
 
-    const tenantId = String((tenant as any)._id);
-    let ProductModel: any;
+// ── Admin CRUD endpoints ───────────────────────────────────────────────────────
 
-    if ((tenant as any).databaseUri) {
-      const conn = await getTenantConnection((tenant as any).databaseUri);
-      ProductModel = getProductModel(conn);
-    } else {
-      const { Product } = await import("../models/Product.js");
-      ProductModel = Product;
+brandsRouter.use(requireAdminAuth);
+
+brandsRouter.get("/", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const targetTenantId = a.role === "superadmin"
+      ? (req.query.tenantId as string | undefined)
+      : a.tenantId ?? undefined;
+
+    const { Model, useTenantFilter } = await resolveBrandModel(targetTenantId);
+    const filter: Record<string, unknown> = {};
+    if (useTenantFilter && targetTenantId) {
+      filter.tenantId = new mongoose.Types.ObjectId(targetTenantId);
     }
 
-    // Distinct brandIds that are non-empty strings
-    const rawBrands: string[] = await ProductModel.distinct("brandId", {
-      tenantId,
-      status: "active",
-      brandId: { $exists: true, $ne: "" },
-    });
+    const list = await Model.find(filter).sort({ name: 1 }).lean();
+    res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
+  } catch (e) {
+    next(e);
+  }
+});
 
-    const brands = rawBrands
-      .filter((b) => b && b.trim())
-      .sort((a, b) => a.localeCompare(b, "mn"))
-      .map((name) => ({
-        id: name,
-        name,
-        slug: name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
-      }));
+brandsRouter.post("/", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const body = { ...req.body };
 
-    res.json(brands);
+    if (a.role !== "superadmin") {
+      body.tenantId = a.tenantId;
+    }
+
+    const { Model, useTenantFilter } = await resolveBrandModel(body.tenantId);
+    if (!useTenantFilter) delete body.tenantId;
+
+    const doc = await Model.create(body);
+    res.status(201).json({ data: serializeDocument(doc) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+brandsRouter.patch("/:id", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const tenantId = a.role !== "superadmin" ? a.tenantId : undefined;
+
+    const { Model, useTenantFilter } = await resolveBrandModel(tenantId);
+    const filter: Record<string, unknown> = { _id: req.params.id };
+    if (useTenantFilter && tenantId) filter.tenantId = tenantId;
+
+    const doc = await Model.findOneAndUpdate(filter, req.body, { new: true });
+    if (!doc) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Brand not found" } });
+      return;
+    }
+    res.json({ data: serializeDocument(doc) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+brandsRouter.delete("/:id", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const tenantId = a.role !== "superadmin" ? a.tenantId : undefined;
+
+    const { Model, useTenantFilter } = await resolveBrandModel(tenantId);
+    const filter: Record<string, unknown> = { _id: req.params.id };
+    if (useTenantFilter && tenantId) filter.tenantId = tenantId;
+
+    const doc = await Model.findOneAndDelete(filter);
+    if (!doc) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Brand not found" } });
+      return;
+    }
+    res.status(204).send();
   } catch (e) {
     next(e);
   }
