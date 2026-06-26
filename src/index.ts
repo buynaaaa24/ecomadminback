@@ -18,6 +18,7 @@ import { categoriesRouter } from "./routes/categories.js";
 import { ordersRouter } from "./routes/orders.js";
 import { qpayRouter } from "./routes/qpay.js";
 import { usersRouter } from "./routes/users.js";
+import { brandsRouter } from "./routes/brands.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 8000;
@@ -49,6 +50,7 @@ app.get("/", (_req, res) => {
 
 // Storefront public endpoints
 app.use("/api/config", configRouter);
+app.use("/api/brands", brandsRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/qpay", qpayRouter);
 app.use("/api/users", usersRouter);
