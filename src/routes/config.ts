@@ -89,7 +89,6 @@ configRouter.get("/", async (req, res, next) => {
               smallSlides: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
             },
           },
-          { type: "CategoryList", props: {} },
           { type: "CategoryProductSection", props: {} },
           { type: "GroceryBento", props: { tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [], sectionTitle: t.bentoTitle ?? "" } },
           { type: "BrandList", props: {} },
