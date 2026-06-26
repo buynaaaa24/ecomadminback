@@ -386,7 +386,8 @@ productsRouter.get("/em-available", async (req, res, next) => {
 productsRouter.post("/em-import", async (req, res, next) => {
   try {
     const a = req.admin!;
-    const { codes } = req.body;
+    const { codes, categoryOverrides } = req.body;
+    const catOverrides: Record<string, string> = (categoryOverrides && typeof categoryOverrides === "object") ? categoryOverrides : {};
     const targetTenantId = a.role === "superadmin"
       ? (req.body.tenantId as string | undefined)
       : a.tenantId ?? undefined;
@@ -458,6 +459,10 @@ productsRouter.post("/em-import", async (req, res, next) => {
         slug: cleanSlug,
         status: "active",
       };
+
+      if (catOverrides[item.code]) {
+        mappedBody.categoryId = catOverrides[item.code];
+      }
 
       if (imageUrl) {
         mappedBody.images = [imageUrl];
