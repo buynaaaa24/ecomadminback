@@ -71,11 +71,13 @@ async function syncEmProductsStock(products: any[], tenantId: string | null | un
   if (!tenantId || !products || products.length === 0) return products;
 
   try {
-    const tenant = await Tenant.findById(tenantId).lean<{ emDbUri?: string }>();
+    const tenant = await Tenant.findById(tenantId).lean<{ emDbUri?: string; emOrgId?: string; emBranchId?: string }>();
     const emUri = tenant?.emDbUri;
     if (!emUri || (!emUri.startsWith("http://") && !emUri.startsWith("https://"))) {
       return products;
     }
+    const emOrgId = tenant?.emOrgId ?? "";
+    const emBranchId = tenant?.emBranchId ?? "";
 
     const linkedProducts = products.filter((p) => p.isEmLinked && p.emProductCode);
     if (linkedProducts.length === 0) return products;
@@ -88,6 +90,8 @@ async function syncEmProductsStock(products: any[], tenantId: string | null | un
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         codes: emCodes,
+        ...(emBranchId ? { salbariinId: emBranchId } : {}),
+        ...(emOrgId ? { baiguullagiinId: emOrgId } : {}),
       }),
     });
 
@@ -341,14 +345,18 @@ productsRouter.get("/em-available", async (req, res, next) => {
       return;
     }
 
-    const tenant = await Tenant.findById(targetTenantId).lean<{ emDbUri?: string }>();
+    const tenant = await Tenant.findById(targetTenantId).lean<{ emDbUri?: string; emOrgId?: string; emBranchId?: string }>();
     const emUri = tenant?.emDbUri;
     if (!emUri || (!emUri.startsWith("http://") && !emUri.startsWith("https://"))) {
       res.status(400).json({ error: "EM database integration is not configured." });
       return;
     }
+    const emAvailQs = new URLSearchParams();
+    if (tenant?.emBranchId) emAvailQs.set("salbariinId", tenant.emBranchId);
+    if (tenant?.emOrgId) emAvailQs.set("baiguullagiinId", tenant.emOrgId);
+    const emAvailQsStr = emAvailQs.toString() ? `?${emAvailQs.toString()}` : "";
 
-    const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-available`);
+    const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-available${emAvailQsStr}`);
     if (!response.ok) {
       throw new Error(`EM API returned status ${response.status}`);
     }
@@ -401,14 +409,20 @@ productsRouter.post("/em-import", async (req, res, next) => {
       return;
     }
 
-    const tenant = await Tenant.findById(targetTenantId).lean<{ emDbUri?: string }>();
-    const emUri = tenant?.emDbUri;
+    const tenant2 = await Tenant.findById(targetTenantId).lean<{ emDbUri?: string; emOrgId?: string; emBranchId?: string }>();
+    const emUri = tenant2?.emDbUri;
     if (!emUri || (!emUri.startsWith("http://") && !emUri.startsWith("https://"))) {
       res.status(400).json({ error: "EM database integration is not configured." });
       return;
     }
+    const emImportOrgId = tenant2?.emOrgId ?? "";
+    const emImportBranchId = tenant2?.emBranchId ?? "";
+    const emImportQs = new URLSearchParams();
+    if (emImportBranchId) emImportQs.set("salbariinId", emImportBranchId);
+    if (emImportOrgId) emImportQs.set("baiguullagiinId", emImportOrgId);
+    const emImportQsStr = emImportQs.toString() ? `?${emImportQs.toString()}` : "";
 
-    const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-available`);
+    const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-available${emImportQsStr}`);
     if (!response.ok) {
       throw new Error(`EM API returned status ${response.status}`);
     }
