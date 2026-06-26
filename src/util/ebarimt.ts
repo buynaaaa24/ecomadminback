@@ -86,7 +86,7 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       }],
     };
 
-    const isTest = tenant.ebarimtTest === true || process.env.NODE_ENV !== "production";
+    const isTest = tenant.ebarimtTest === true;
     const baseUrl = (isTest ? EBARIMT_TEST_URL : EBARIMT_URL).replace(/\/$/, "");
     const requestUrl = `${baseUrl}/rest/receipt`;
     console.log(`[Ebarimt] Issuing receipt: ${requestUrl} (test=${isTest})`, JSON.stringify(payload));
