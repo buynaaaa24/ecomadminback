@@ -10,9 +10,11 @@ import { getOrderModel } from "../models/orderSchema.js";
 import { getTenantConnection } from "../db.js";
 import { serializeLean } from "../util/serialize.js";
 
-// ── OTP in-memory store ──────────────────────────────────────────────────────
+// ── OTP in-memory stores ─────────────────────────────────────────────────────
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const otpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+const otpStore     = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+const registerOtpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+const forgotOtpStore   = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
 
 function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -185,6 +187,27 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
   }
 });
 
+// ── POST /api/users/otp/send-register ──────────────────────────────────────
+
+usersRouter.post("/otp/send-register", async (req, res, next) => {
+  try {
+    const { phone } = req.body as { phone?: string };
+    if (!phone) { res.status(400).json({ error: "Утасны дугаар шаардлагатай" }); return; }
+    const tenantId = resolveTenantId(req);
+    const key = otpKey(phone.trim(), tenantId);
+    const code = generateOtp();
+    registerOtpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
+    try {
+      await sendSms(phone.trim(), `Бүртгэлийн баталгаажуулах код: ${code}. 5 минутын дараа хүчингүй болно.`);
+    } catch (smsErr: any) {
+      console.error("[OTP-REG] SMS send failed:", smsErr.message);
+      res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" }); return;
+    }
+    console.log(`[OTP-REG] Sent to ${phone} (tenantId=${tenantId})`);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
 // ── POST /api/users/register ─────────────────────────────────────────────────
 
 usersRouter.post("/register", async (req, res, next) => {
@@ -211,6 +234,20 @@ usersRouter.post("/register", async (req, res, next) => {
     const emailLower = (email?.trim() || `${resolvedPhone}@phone.local`).toLowerCase();
     const resolvedFirstName = firstName?.trim() || resolvedPhone;
     const resolvedLastName = lastName?.trim() || "";
+
+    // Verify register OTP
+    const { otpCode } = req.body as { otpCode?: string };
+    if (!otpCode) { res.status(400).json({ error: "OTP код шаардлагатай" }); return; }
+    const regKey = otpKey(resolvedPhone, tenantId);
+    const regEntry = registerOtpStore.get(regKey);
+    if (!regEntry || regEntry.code !== otpCode.trim()) {
+      res.status(401).json({ error: "OTP код буруу байна" }); return;
+    }
+    if (Date.now() > regEntry.expiresAt) {
+      registerOtpStore.delete(regKey);
+      res.status(401).json({ error: "OTP кодны хугацаа дууссан байна" }); return;
+    }
+    registerOtpStore.delete(regKey);
 
     const existing = await CustomerUser.findOne({
       tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
@@ -319,6 +356,64 @@ usersRouter.post("/login", async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+// ── POST /api/users/forgot-password/send ────────────────────────────────────
+
+usersRouter.post("/forgot-password/send", async (req, res, next) => {
+  try {
+    const { phone } = req.body as { phone?: string };
+    if (!phone) { res.status(400).json({ error: "Утасны дугаар шаардлагатай" }); return; }
+    const tenantId = resolveTenantId(req);
+    const user = await CustomerUser.findOne({
+      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      phone: phone.trim(),
+    });
+    if (!user) { res.status(404).json({ error: "Бүртгэлтэй утас олдсонгүй" }); return; }
+    const code = generateOtp();
+    const key = otpKey(phone.trim(), tenantId);
+    forgotOtpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
+    try {
+      await sendSms(phone.trim(), `Нууц үг сэргээх код: ${code}. 5 минутын дараа хүчингүй болно.`);
+    } catch (smsErr: any) {
+      console.error("[FORGOT] SMS send failed:", smsErr.message);
+      res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" }); return;
+    }
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/users/forgot-password/reset ────────────────────────────────────
+
+usersRouter.post("/forgot-password/reset", async (req, res, next) => {
+  try {
+    const { phone, otpCode, newPassword } = req.body as { phone?: string; otpCode?: string; newPassword?: string };
+    if (!phone || !otpCode || !newPassword) {
+      res.status(400).json({ error: "Утас, OTP код, шинэ нууц үг шаардлагатай" }); return;
+    }
+    if (newPassword.length < 6) {
+      res.status(400).json({ error: "Нууц үг хамгийн багадаа 6 тэмдэгт байх ёстой" }); return;
+    }
+    const tenantId = resolveTenantId(req);
+    const key = otpKey(phone.trim(), tenantId);
+    const entry = forgotOtpStore.get(key);
+    if (!entry || entry.code !== otpCode.trim()) {
+      res.status(401).json({ error: "OTP код буруу байна" }); return;
+    }
+    if (Date.now() > entry.expiresAt) {
+      forgotOtpStore.delete(key);
+      res.status(401).json({ error: "OTP кодны хугацаа дууссан байна" }); return;
+    }
+    forgotOtpStore.delete(key);
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const user = await CustomerUser.findOneAndUpdate(
+      { tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null, phone: phone.trim() },
+      { $set: { passwordHash } },
+      { new: true }
+    );
+    if (!user) { res.status(404).json({ error: "Хэрэглэгч олдсонгүй" }); return; }
+    res.json({ success: true });
+  } catch (e) { next(e); }
 });
 
 // ── POST /api/users/refresh ──────────────────────────────────────────────────
