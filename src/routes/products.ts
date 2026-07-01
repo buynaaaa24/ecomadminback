@@ -761,8 +761,45 @@ productsRouter.get("/:id/history", async (req, res, next) => {
       }
     }
 
+    // Deduplicate: merge matching e-commerce orders and POS movement logs
+    const mergedExternalIndices = new Set<number>();
+    const mergedLocalHistory = localHistory.map((localItem) => {
+      // 1. Try exact refNo match
+      let matchIdx = externalHistory.findIndex((extItem, idx) => 
+        !mergedExternalIndices.has(idx) && 
+        extItem.refNo && 
+        localItem.refNo && 
+        (extItem.refNo === localItem.refNo || 
+         extItem.refNo === `ECOM-${localItem.refNo.substring(localItem.refNo.length - 6).toUpperCase()}`)
+      );
+      
+      // 2. Try timestamp and quantity proximity match (within 10 seconds)
+      if (matchIdx === -1) {
+        matchIdx = externalHistory.findIndex((extItem, idx) => {
+          if (mergedExternalIndices.has(idx)) return false;
+          const timeDiff = Math.abs(new Date(localItem.date).getTime() - new Date(extItem.date).getTime());
+          const qtyMatch = Math.abs(localItem.qty) === Math.abs(extItem.qty);
+          return timeDiff <= 10000 && qtyMatch;
+        });
+      }
+      
+      if (matchIdx !== -1) {
+        mergedExternalIndices.add(matchIdx);
+        const extItem = externalHistory[matchIdx];
+        return {
+          ...localItem,
+          prevStock: extItem.prevStock,
+          note: `${localItem.note} (POS: ${extItem.refNo})`,
+        };
+      }
+      
+      return localItem;
+    });
+
+    const unmatchedExternal = externalHistory.filter((_, idx) => !mergedExternalIndices.has(idx));
+
     // Combine and sort by date descending
-    const combined = [...localHistory, ...externalHistory].sort((a, b) => {
+    const combined = [...mergedLocalHistory, ...unmatchedExternal].sort((a, b) => {
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
 

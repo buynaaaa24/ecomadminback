@@ -93,6 +93,9 @@ ordersRouter.post("/public", async (req, res, next) => {
     const posUri = tenant?.posDbUri;
     const emUri = tenant?.emDbUri;
 
+    // Generate tracking order number
+    const orderNumber = `E-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
     const succeededDecrements: Array<{
       productId: string;
       quantity: number;
@@ -127,6 +130,7 @@ ordersRouter.post("/public", async (req, res, next) => {
               quantity: qty,
               salbariinId: tenant.posBranchId,
               baiguullagiinId: tenant.posOrgId,
+              refNo: orderNumber,
             }),
           });
           if (!decResponse.ok) {
@@ -155,6 +159,7 @@ ordersRouter.post("/public", async (req, res, next) => {
               quantity: qty,
               salbariinId: tenant?.emBranchId || "",
               baiguullagiinId: tenant?.emOrgId || "",
+              refNo: orderNumber,
             }),
           });
           if (!decResponse.ok) {
@@ -241,8 +246,7 @@ ordersRouter.post("/public", async (req, res, next) => {
     const shipping = itemsTotal >= threshold ? 0 : fee;
     const total = itemsTotal + shipping;
 
-    // 3. Generate tracking order number
-    const orderNumber = `E-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    // 3. Generate tracking order number (declared above)
 
     const paymentStatus = paymentMethod === "qpay" ? "paid" : "pending";
 
