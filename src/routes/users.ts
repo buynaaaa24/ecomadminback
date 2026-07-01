@@ -160,7 +160,7 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
         phone: phone.trim(),
         email: `${phone.trim()}@phone.local`,
         passwordHash: tmpHash,
-        firstName: firstName?.trim() || phone.trim(),
+        firstName: firstName?.trim() || "",
         lastName: lastName?.trim() || "",
         refreshTokens: [],
       });
@@ -238,7 +238,7 @@ usersRouter.post("/register", async (req, res, next) => {
     const tenantId = resolveTenantId(req);
     const resolvedPhone = phone?.trim() ?? "";
     const emailLower = (email?.trim() || `${resolvedPhone}@phone.local`).toLowerCase();
-    const resolvedFirstName = firstName?.trim() || resolvedPhone;
+    const resolvedFirstName = firstName?.trim() || "";
     const resolvedLastName = lastName?.trim() || "";
 
     // Verify register OTP
