@@ -2,10 +2,13 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { Product } from "../models/Product.js";
 import { getProductModel } from "../models/productSchema.js";
+import { Order } from "../models/Order.js";
+import { getOrderModel } from "../models/orderSchema.js";
 import { Tenant } from "../models/Tenant.js";
 import { getTenantConnection } from "../db.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 import { serializeDocument, serializeLean } from "../util/serialize.js";
+
 
 /**
  * Enriches product lists with real-time POS stock (uldegdel) levels if POS integration is active.
@@ -25,7 +28,7 @@ async function syncPosProductsStock(products: any[], tenantId: string | null | u
     if (linkedProducts.length === 0) return products;
 
     const posCodes = linkedProducts.map((p) => p.posProductCode);
-    let posItems: { code: string; uldegdel: number }[] = [];
+    let posItems: { code: string; uldegdel: number; onlinePrice?: number }[] = [];
 
     const response = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-stock-sync`, {
       method: "POST",
@@ -41,20 +44,35 @@ async function syncPosProductsStock(products: any[], tenantId: string | null | u
       throw new Error(`POS API stock sync failed with status ${response.status}`);
     }
 
-    const resBody = await response.json() as { data?: { code: string; uldegdel: number }[] };
+    const resBody = await response.json() as { data?: { code: string; uldegdel: number; onlinePrice?: number }[] };
     posItems = resBody.data || [];
 
-    const stockMap = new Map<string, number>();
+    const stockMap = new Map<string, { uldegdel: number; onlinePrice?: number }>();
+    const { Model: ProductModel } = await resolveProductModel(tenantId);
+
     for (const item of posItems) {
       if (item && item.code) {
-        stockMap.set(item.code, item.uldegdel ?? 0);
+        stockMap.set(item.code, { uldegdel: item.uldegdel ?? 0, onlinePrice: item.onlinePrice });
+        if (item.onlinePrice !== undefined && item.onlinePrice > 0) {
+          // Sync onlinePrice to local database in background if changed
+          ProductModel.updateOne(
+            { posProductCode: item.code, isPosLinked: true, price: { $ne: item.onlinePrice } },
+            { $set: { price: item.onlinePrice } }
+          ).catch((e) => console.error("[POS-SYNC] Failed to update product price in background:", e));
+        }
       }
     }
 
     return products.map((p) => {
       if (p.isPosLinked && p.posProductCode) {
-        const liveStock = stockMap.get(p.posProductCode) ?? 0;
-        return { ...p, stock: liveStock };
+        const liveItem = stockMap.get(p.posProductCode);
+        const liveStock = liveItem ? liveItem.uldegdel : 0;
+        const livePrice = liveItem ? liveItem.onlinePrice : undefined;
+        return {
+          ...p,
+          stock: liveStock,
+          price: livePrice !== undefined && livePrice > 0 ? livePrice : p.price
+        };
       }
       return p;
     });
@@ -83,7 +101,7 @@ async function syncEmProductsStock(products: any[], tenantId: string | null | un
     if (linkedProducts.length === 0) return products;
 
     const emCodes = linkedProducts.map((p) => p.emProductCode);
-    let emItems: { code: string; uldegdel: number }[] = [];
+    let emItems: { code: string; uldegdel: number; onlinePrice?: number }[] = [];
 
     const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-stock-sync`, {
       method: "POST",
@@ -99,20 +117,35 @@ async function syncEmProductsStock(products: any[], tenantId: string | null | un
       throw new Error(`EM API stock sync failed with status ${response.status}`);
     }
 
-    const resBody = await response.json() as { data?: { code: string; uldegdel: number }[] };
+    const resBody = await response.json() as { data?: { code: string; uldegdel: number; onlinePrice?: number }[] };
     emItems = resBody.data || [];
 
-    const stockMap = new Map<string, number>();
+    const stockMap = new Map<string, { uldegdel: number; onlinePrice?: number }>();
+    const { Model: ProductModel } = await resolveProductModel(tenantId);
+
     for (const item of emItems) {
       if (item && item.code) {
-        stockMap.set(item.code, item.uldegdel ?? 0);
+        stockMap.set(item.code, { uldegdel: item.uldegdel ?? 0, onlinePrice: item.onlinePrice });
+        if (item.onlinePrice !== undefined && item.onlinePrice > 0) {
+          // Sync onlinePrice to local database in background if changed
+          ProductModel.updateOne(
+            { emProductCode: item.code, isEmLinked: true, price: { $ne: item.onlinePrice } },
+            { $set: { price: item.onlinePrice } }
+          ).catch((e) => console.error("[EM-SYNC] Failed to update product price in background:", e));
+        }
       }
     }
 
     return products.map((p) => {
       if (p.isEmLinked && p.emProductCode) {
-        const liveStock = stockMap.get(p.emProductCode) ?? 0;
-        return { ...p, stock: liveStock };
+        const liveItem = stockMap.get(p.emProductCode);
+        const liveStock = liveItem ? liveItem.uldegdel : 0;
+        const livePrice = liveItem ? liveItem.onlinePrice : undefined;
+        return {
+          ...p,
+          stock: liveStock,
+          price: livePrice !== undefined && livePrice > 0 ? livePrice : p.price
+        };
       }
       return p;
     });
@@ -144,7 +177,26 @@ async function resolveProductModel(tenantId: string | null | undefined): Promise
   return { Model: Product, useTenantFilter: true };
 }
 
+/**
+ * Resolve the Order model to use for a given tenantId.
+ */
+async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
+  Model: typeof Order | ReturnType<typeof getOrderModel>;
+  useTenantFilter: boolean;
+}> {
+  if (tenantId) {
+    const tenant = await Tenant.findById(tenantId).lean<{ databaseUri?: string }>();
+    const uri = tenant?.databaseUri;
+    if (uri && (uri.startsWith("mongodb://") || uri.startsWith("mongodb+srv://"))) {
+      const conn = await getTenantConnection(uri);
+      return { Model: getOrderModel(conn), useTenantFilter: false };
+    }
+  }
+  return { Model: Order, useTenantFilter: true };
+}
+
 // ── Public endpoint for storefront ────────────────────────────────────────────
+
 
 productsRouter.get("/public", async (req, res, next) => {
   try {
@@ -207,6 +259,7 @@ productsRouter.get("/pos-available", async (req, res, next) => {
       barCode: item.barcode ?? item.barCode,
       uldegdel: item.stock ?? item.uldegdel,
       niitUne: item.price ?? item.niitUne,
+      onlinePrice: item.onlinePrice,
       image: item.image ?? "",
     }));
 
@@ -219,7 +272,7 @@ productsRouter.get("/pos-available", async (req, res, next) => {
       barcode: item.barCode ?? "",
       name: item.ner,
       stock: item.uldegdel ?? 0,
-      price: item.niitUne ?? item.urtugUne ?? 0,
+      price: item.onlinePrice || item.niitUne || item.urtugUne || 0,
       image: item.image ? `${posUri.replace(/\/$/, "")}${item.image}` : "",
       alreadyImported: importedCodes.has(item.code),
     }));
@@ -273,6 +326,7 @@ productsRouter.post("/pos-import", async (req, res, next) => {
         barCode: item.barcode ?? item.barCode,
         uldegdel: item.stock ?? item.uldegdel,
         niitUne: item.price ?? item.niitUne,
+        onlinePrice: item.onlinePrice,
         image: item.image ?? "",
       }));
 
@@ -296,7 +350,7 @@ productsRouter.post("/pos-import", async (req, res, next) => {
     };
 
     for (const item of posItems as any[]) {
-      const price = item.niitUne || item.urtugUne || 0;
+      const price = item.onlinePrice || item.niitUne || item.urtugUne || 0;
       const cleanSlug = `${slugify(item.ner || "imported")}-${item.code}`;
       const imageUrl = item.image ? `${posUri.replace(/\/$/, "")}${item.image}` : "";
 
@@ -368,6 +422,7 @@ productsRouter.get("/em-available", async (req, res, next) => {
       barcode: item.barcode ?? item.barCode,
       stock: item.stock ?? item.uldegdel,
       price: item.price ?? item.niitUne,
+      onlinePrice: item.onlinePrice,
       image: item.image ?? "",
     }));
 
@@ -380,7 +435,7 @@ productsRouter.get("/em-available", async (req, res, next) => {
       barcode: item.barcode ?? "",
       name: item.name,
       stock: item.stock ?? 0,
-      price: item.price ?? 0,
+      price: item.onlinePrice || item.price || 0,
       image: item.image ? `${emUri.replace(/\/$/, "")}${item.image}` : "",
       alreadyImported: importedCodes.has(item.code),
     }));
@@ -437,6 +492,7 @@ productsRouter.post("/em-import", async (req, res, next) => {
         barcode: item.barcode ?? item.barCode,
         stock: item.stock ?? item.uldegdel,
         price: item.price ?? item.niitUne,
+        onlinePrice: item.onlinePrice,
         image: item.image ?? "",
       }));
 
@@ -460,7 +516,7 @@ productsRouter.post("/em-import", async (req, res, next) => {
     };
 
     for (const item of emItems as any[]) {
-      const price = item.price || 0;
+      const price = item.onlinePrice || item.price || 0;
       const cleanSlug = `${slugify(item.name || "imported")}-${item.code}`;
       const imageUrl = item.image ? `${emUri.replace(/\/$/, "")}${item.image}` : "";
 
@@ -557,6 +613,51 @@ productsRouter.patch("/:id", async (req, res, next) => {
       res.status(404).json({ error: { code: "NOT_FOUND", message: "Product not found" } });
       return;
     }
+
+    // Sync price back to POS/EM if linked and price is updated
+    const resolvedTenantId = tenantId || (doc as any).tenantId;
+    if (resolvedTenantId && req.body.price !== undefined) {
+      if ((doc as any).isPosLinked && (doc as any).posProductCode) {
+        const tenant = await Tenant.findById(resolvedTenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
+        const posUri = tenant?.posDbUri;
+        if (posUri && (posUri.startsWith("http://") || posUri.startsWith("https://"))) {
+          try {
+            await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/price-sync`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code: (doc as any).posProductCode,
+                price: Number(req.body.price),
+                salbariinId: tenant.posBranchId,
+                baiguullagiinId: tenant.posOrgId,
+              }),
+            });
+          } catch (err) {
+            console.error("[POS-PRICE-SYNC] Failed to sync price to POS:", err);
+          }
+        }
+      } else if ((doc as any).isEmLinked && (doc as any).emProductCode) {
+        const tenant = await Tenant.findById(resolvedTenantId).lean<{ emDbUri?: string; emBranchId?: string; emOrgId?: string }>();
+        const emUri = tenant?.emDbUri;
+        if (emUri && (emUri.startsWith("http://") || emUri.startsWith("https://"))) {
+          try {
+            await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/price-sync`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code: (doc as any).emProductCode,
+                price: Number(req.body.price),
+                salbariinId: tenant.emBranchId,
+                baiguullagiinId: tenant.emOrgId,
+              }),
+            });
+          } catch (err) {
+            console.error("[EM-PRICE-SYNC] Failed to sync price to EM:", err);
+          }
+        }
+      }
+    }
+
     res.json({ data: serializeDocument(doc) });
   } catch (e) {
     next(e);
@@ -582,3 +683,92 @@ productsRouter.delete("/:id", async (req, res, next) => {
     next(e);
   }
 });
+
+productsRouter.get("/:id/history", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const targetTenantId = a.role === "superadmin"
+      ? (req.query.tenantId as string | undefined)
+      : a.tenantId ?? undefined;
+
+    if (!targetTenantId) {
+      res.status(400).json({ error: "tenantId required" });
+      return;
+    }
+
+    const { Model } = await resolveProductModel(targetTenantId);
+    const product = await Model.findById(req.params.id).lean<{ isPosLinked?: boolean; posProductCode?: string; isEmLinked?: boolean; emProductCode?: string }>();
+    if (!product) {
+      res.status(404).json({ error: "Product not found" });
+      return;
+    }
+
+    // 1. Get orders from local ecommerce database
+    const { Model: OrderModel, useTenantFilter } = await resolveOrderModel(targetTenantId);
+    const orderFilter: Record<string, any> = { "items.productId": req.params.id };
+    if (useTenantFilter && targetTenantId) orderFilter.tenantId = targetTenantId;
+
+    const ordersList = await OrderModel.find(orderFilter).sort({ createdAt: -1 }).lean();
+    const localHistory = ordersList.map((o) => {
+      const item = o.items.find((it: any) => it.productId === req.params.id);
+      return {
+        date: o.createdAt,
+        type: "Захиалга",
+        flow: "zarlaga",
+        refNo: o.orderNumber,
+        qty: item ? item.quantity : 0,
+        price: item ? item.price : 0,
+        actor: o.customerInfo ? `${o.customerInfo.firstName} ${o.customerInfo.lastName || ""}`.trim() : "",
+        note: `Онлайн захиалга (${o.orderStatus})`,
+      };
+    });
+
+    let externalHistory: any[] = [];
+
+    // 2. Fetch from POS if linked
+    if (product.isPosLinked && product.posProductCode) {
+      const tenant = await Tenant.findById(targetTenantId).lean<{ posDbUri?: string; posBranchId?: string; posOrgId?: string }>();
+      const posUri = tenant?.posDbUri;
+      if (posUri && (posUri.startsWith("http://") || posUri.startsWith("https://"))) {
+        try {
+          const qs = `code=${encodeURIComponent(product.posProductCode)}&salbariinId=${encodeURIComponent(tenant.posBranchId || "")}&baiguullagiinId=${encodeURIComponent(tenant.posOrgId || "")}`;
+          const response = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/product-history?${qs}`);
+          if (response.ok) {
+            const body = await response.json();
+            externalHistory = body.data || [];
+          }
+        } catch (err) {
+          console.error("[POS-SYNC] Failed to fetch product history:", err);
+        }
+      }
+    }
+
+    // 3. Fetch from EM if linked
+    if (product.isEmLinked && product.emProductCode) {
+      const tenant = await Tenant.findById(targetTenantId).lean<{ emDbUri?: string; emBranchId?: string; emOrgId?: string }>();
+      const emUri = tenant?.emDbUri;
+      if (emUri && (emUri.startsWith("http://") || emUri.startsWith("https://"))) {
+        try {
+          const qs = `code=${encodeURIComponent(product.emProductCode)}&salbariinId=${encodeURIComponent(tenant.emBranchId || "")}&baiguullagiinId=${encodeURIComponent(tenant.emOrgId || "")}`;
+          const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/product-history?${qs}`);
+          if (response.ok) {
+            const body = await response.json();
+            externalHistory = [...externalHistory, ...(body.data || [])];
+          }
+        } catch (err) {
+          console.error("[EM-SYNC] Failed to fetch product history:", err);
+        }
+      }
+    }
+
+    // Combine and sort by date descending
+    const combined = [...localHistory, ...externalHistory].sort((a, b) => {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+
+    res.json({ data: combined });
+  } catch (e) {
+    next(e);
+  }
+});
+
