@@ -12,9 +12,9 @@ import { serializeLean } from "../util/serialize.js";
 
 // ── OTP in-memory stores ─────────────────────────────────────────────────────
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const otpStore     = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+const otpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
 const registerOtpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
-const forgotOtpStore   = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+const forgotOtpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
 
 function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -198,7 +198,7 @@ usersRouter.post("/otp/send-register", async (req, res, next) => {
     const code = generateOtp();
     registerOtpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
     try {
-      await sendSms(phone.trim(), `Бүртгэлийн баталгаажуулах код: ${code}. 5 минутын дараа хүчингүй болно.`);
+      await sendSms(phone.trim(), `Бүртгэлийн баталгаажуулах код: ${code}. Хүчинтэй хугацаа 5 минут.`);
     } catch (smsErr: any) {
       console.error("[OTP-REG] SMS send failed:", smsErr.message);
       res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" }); return;
@@ -374,7 +374,7 @@ usersRouter.post("/forgot-password/send", async (req, res, next) => {
     const key = otpKey(phone.trim(), tenantId);
     forgotOtpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
     try {
-      await sendSms(phone.trim(), `Нууц үг сэргээх код: ${code}. 5 минутын дараа хүчингүй болно.`);
+      await sendSms(phone.trim(), `Нууц үг сэргээх код: ${code}. Хүчинтэй хугацаа 5 минут.`);
     } catch (smsErr: any) {
       console.error("[FORGOT] SMS send failed:", smsErr.message);
       res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" }); return;
