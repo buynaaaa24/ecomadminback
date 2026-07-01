@@ -219,6 +219,32 @@ productsRouter.get("/public", async (req, res, next) => {
   }
 });
 
+productsRouter.get("/public/by-code/:code", async (req, res, next) => {
+  try {
+    const tenantId = req.query.tenantId as string | undefined;
+    if (!tenantId) {
+      res.status(400).json({ error: "tenantId required" });
+      return;
+    }
+    const { Model } = await resolveProductModel(tenantId);
+    const product = await Model.findOne({
+      $or: [
+        { posProductCode: req.params.code, isPosLinked: true },
+        { emProductCode: req.params.code, isEmLinked: true }
+      ]
+    }).lean();
+
+    if (!product) {
+      res.json({ data: null });
+      return;
+    }
+
+    res.json({ data: { price: product.price, salePrice: product.salePrice } });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ── Admin endpoints ───────────────────────────────────────────────────────────
 
 productsRouter.use(requireAdminAuth);
