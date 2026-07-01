@@ -222,11 +222,24 @@ productsRouter.get("/public", async (req, res, next) => {
 productsRouter.get("/public/by-code/:code", async (req, res, next) => {
   try {
     const tenantId = req.query.tenantId as string | undefined;
-    if (!tenantId) {
-      res.status(400).json({ error: "tenantId required" });
+    const orgId = req.query.orgId as string | undefined;
+    
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId && orgId) {
+      const tenant = await Tenant.findOne({
+        $or: [{ posOrgId: orgId }, { emOrgId: orgId }]
+      }).lean<{ _id: any }>();
+      if (tenant) {
+        resolvedTenantId = tenant._id.toString();
+      }
+    }
+
+    if (!resolvedTenantId) {
+      res.status(400).json({ error: "tenantId or orgId required" });
       return;
     }
-    const { Model } = await resolveProductModel(tenantId);
+
+    const { Model } = await resolveProductModel(resolvedTenantId);
     const product = await Model.findOne({
       $or: [
         { posProductCode: req.params.code, isPosLinked: true },
