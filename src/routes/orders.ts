@@ -9,6 +9,7 @@ import { getTenantConnection } from "../db.js";
 import { requireAdminAuth } from "../middleware/adminAuth.js";
 import { serializeDocument, serializeLean } from "../util/serialize.js";
 import { issueEbarimt } from "../util/ebarimt.js";
+import { sendSms } from "../util/sms.js";
 
 export const ordersRouter = Router();
 
@@ -300,7 +301,63 @@ ordersRouter.post("/public", async (req, res, next) => {
     }
 
     const doc = await OrderModel.create(orderBody);
+
+     
+    try {
+      const base = (process.env.STOREFRONT_URL ?? "http://localhost:7000").replace(/\/$/, "");
+      const link = `${base}/order/${orderNumber}`;
+      await sendSms(
+        customerInfo.phone,
+        `Таны #${orderNumber} захиалга амжилттай баталгаажлаа. Явцтай танилцах: ${link}`,
+      );
+    } catch (smsErr: any) {
+      console.error("[Order SMS] send failed:", smsErr?.message || smsErr);
+    }
+
     res.status(201).json({ data: serializeDocument(doc) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+ 
+ordersRouter.get("/track/:orderNumber", async (req, res, next) => {
+  try {
+    const tenantId = (req.query.tenantId as string | undefined) ?? undefined;
+    const { Model, useTenantFilter } = await resolveOrderModel(tenantId);
+    const filter: Record<string, unknown> = { orderNumber: req.params.orderNumber };
+    if (useTenantFilter && tenantId) {
+      filter.tenantId = new mongoose.Types.ObjectId(tenantId);
+    }
+    const order = await Model.findOne(filter).lean<Record<string, any>>();
+    if (!order) {
+      res.status(404).json({ error: "Захиалга олдсонгүй" });
+      return;
+    }
+    // Trimmed public projection — omit phone/email/lastName to limit PII exposure
+    res.json({
+      data: {
+        orderNumber: order.orderNumber,
+        items: (order.items ?? []).map((it: any) => ({
+          name: it.name,
+          quantity: it.quantity,
+          price: it.price,
+          ebarimtBillId: it.ebarimtBillId ?? "",
+          ebarimtLottery: it.ebarimtLottery ?? "",
+          ebarimtQrData: it.ebarimtQrData ?? "",
+        })),
+        total: order.total,
+        shippingFee: order.shippingFee ?? 0,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
+        createdAt: order.createdAt,
+        customerInfo: {
+          firstName: order.customerInfo?.firstName ?? "",
+          address: order.customerInfo?.address ?? "",
+        },
+      },
+    });
   } catch (e) {
     next(e);
   }
