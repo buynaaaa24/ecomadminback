@@ -28,6 +28,12 @@ export const usersRouter = Router();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+function parseTenantId(tenantId: string | null | undefined): mongoose.Types.ObjectId | null {
+  if (!tenantId || !mongoose.Types.ObjectId.isValid(tenantId)) return null;
+  return new mongoose.Types.ObjectId(tenantId);
+}
+
+
 function accessSecret(): string {
   return process.env.CUSTOMER_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "customer-secret";
 }
@@ -142,7 +148,7 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
 
     // Find or create user by phone
     let user = await CustomerUser.findOne({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       phone: phone.trim(),
     });
 
@@ -150,7 +156,7 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
       // Auto-register with phone
       const tmpHash = await bcrypt.hash(generateOtp(), 10);
       user = await CustomerUser.create({
-        tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+        tenantId: parseTenantId(tenantId),
         phone: phone.trim(),
         email: `${phone.trim()}@phone.local`,
         passwordHash: tmpHash,
@@ -250,7 +256,7 @@ usersRouter.post("/register", async (req, res, next) => {
     registerOtpStore.delete(regKey);
 
     const existing = await CustomerUser.findOne({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       $or: [
         { email: emailLower },
         ...(resolvedPhone ? [{ phone: resolvedPhone }] : []),
@@ -264,7 +270,7 @@ usersRouter.post("/register", async (req, res, next) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await CustomerUser.create({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       email: emailLower,
       phone: resolvedPhone,
       passwordHash,
@@ -311,7 +317,7 @@ usersRouter.post("/login", async (req, res, next) => {
 
     const tenantId = resolveTenantId(req);
     const filter: Record<string, unknown> = {
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
     };
 
     if (email) {
@@ -366,7 +372,7 @@ usersRouter.post("/forgot-password/send", async (req, res, next) => {
     if (!phone) { res.status(400).json({ error: "Утасны дугаар шаардлагатай" }); return; }
     const tenantId = resolveTenantId(req);
     const user = await CustomerUser.findOne({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       phone: phone.trim(),
     });
     if (!user) { res.status(404).json({ error: "Бүртгэлтэй утас олдсонгүй" }); return; }
@@ -407,7 +413,7 @@ usersRouter.post("/forgot-password/reset", async (req, res, next) => {
     forgotOtpStore.delete(key);
     const passwordHash = await bcrypt.hash(newPassword, 10);
     const user = await CustomerUser.findOneAndUpdate(
-      { tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null, phone: phone.trim() },
+      { tenantId: parseTenantId(tenantId), phone: phone.trim() },
       { $set: { passwordHash } },
       { new: true }
     );
@@ -520,7 +526,10 @@ usersRouter.get("/orders", async (req, res, next) => {
       ],
     };
     if (useTenantFilter && tenantId) {
-      filter.tenantId = new mongoose.Types.ObjectId(tenantId);
+      const parsedId = parseTenantId(tenantId);
+      if (parsedId) {
+        filter.tenantId = parsedId;
+      }
     }
 
     const orders = await OrderModel.find(filter).sort({ createdAt: -1 }).limit(50).lean();
