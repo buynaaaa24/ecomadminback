@@ -12,9 +12,9 @@ import { serializeLean } from "../util/serialize.js";
 
 // ── OTP in-memory stores ─────────────────────────────────────────────────────
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const otpStore     = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+const otpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
 const registerOtpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
-const forgotOtpStore   = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
+const forgotOtpStore = new Map<string, { code: string; expiresAt: number; tenantId: string | null }>();
 
 function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -27,6 +27,12 @@ function otpKey(phone: string, tenantId: string | null): string {
 export const usersRouter = Router();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+function parseTenantId(tenantId: string | null | undefined): mongoose.Types.ObjectId | null {
+  if (!tenantId || !mongoose.Types.ObjectId.isValid(tenantId)) return null;
+  return new mongoose.Types.ObjectId(tenantId);
+}
+
 
 function accessSecret(): string {
   return process.env.CUSTOMER_JWT_SECRET ?? process.env.ADMIN_JWT_SECRET ?? "customer-secret";
@@ -142,7 +148,7 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
 
     // Find or create user by phone
     let user = await CustomerUser.findOne({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       phone: phone.trim(),
     });
 
@@ -150,11 +156,11 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
       // Auto-register with phone
       const tmpHash = await bcrypt.hash(generateOtp(), 10);
       user = await CustomerUser.create({
-        tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+        tenantId: parseTenantId(tenantId),
         phone: phone.trim(),
         email: `${phone.trim()}@phone.local`,
         passwordHash: tmpHash,
-        firstName: firstName?.trim() || phone.trim(),
+        firstName: firstName?.trim() || "",
         lastName: lastName?.trim() || "",
         refreshTokens: [],
       });
@@ -198,7 +204,7 @@ usersRouter.post("/otp/send-register", async (req, res, next) => {
     const code = generateOtp();
     registerOtpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
     try {
-      await sendSms(phone.trim(), `Бүртгэлийн баталгаажуулах код: ${code}. 5 минутын дараа хүчингүй болно.`);
+      await sendSms(phone.trim(), `Бүртгэлийн баталгаажуулах код: ${code}. Хүчинтэй хугацаа 5 минут.`);
     } catch (smsErr: any) {
       console.error("[OTP-REG] SMS send failed:", smsErr.message);
       res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" }); return;
@@ -232,7 +238,7 @@ usersRouter.post("/register", async (req, res, next) => {
     const tenantId = resolveTenantId(req);
     const resolvedPhone = phone?.trim() ?? "";
     const emailLower = (email?.trim() || `${resolvedPhone}@phone.local`).toLowerCase();
-    const resolvedFirstName = firstName?.trim() || resolvedPhone;
+    const resolvedFirstName = firstName?.trim() || "";
     const resolvedLastName = lastName?.trim() || "";
 
     // Verify register OTP
@@ -250,7 +256,7 @@ usersRouter.post("/register", async (req, res, next) => {
     registerOtpStore.delete(regKey);
 
     const existing = await CustomerUser.findOne({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       $or: [
         { email: emailLower },
         ...(resolvedPhone ? [{ phone: resolvedPhone }] : []),
@@ -264,7 +270,7 @@ usersRouter.post("/register", async (req, res, next) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await CustomerUser.create({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       email: emailLower,
       phone: resolvedPhone,
       passwordHash,
@@ -311,7 +317,7 @@ usersRouter.post("/login", async (req, res, next) => {
 
     const tenantId = resolveTenantId(req);
     const filter: Record<string, unknown> = {
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
     };
 
     if (email) {
@@ -366,7 +372,7 @@ usersRouter.post("/forgot-password/send", async (req, res, next) => {
     if (!phone) { res.status(400).json({ error: "Утасны дугаар шаардлагатай" }); return; }
     const tenantId = resolveTenantId(req);
     const user = await CustomerUser.findOne({
-      tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null,
+      tenantId: parseTenantId(tenantId),
       phone: phone.trim(),
     });
     if (!user) { res.status(404).json({ error: "Бүртгэлтэй утас олдсонгүй" }); return; }
@@ -374,7 +380,7 @@ usersRouter.post("/forgot-password/send", async (req, res, next) => {
     const key = otpKey(phone.trim(), tenantId);
     forgotOtpStore.set(key, { code, expiresAt: Date.now() + OTP_TTL_MS, tenantId });
     try {
-      await sendSms(phone.trim(), `Нууц үг сэргээх код: ${code}. 5 минутын дараа хүчингүй болно.`);
+      await sendSms(phone.trim(), `Нууц үг сэргээх код: ${code}. Хүчинтэй хугацаа 5 минут.`);
     } catch (smsErr: any) {
       console.error("[FORGOT] SMS send failed:", smsErr.message);
       res.status(502).json({ error: "SMS илгээхэд алдаа гарлаа" }); return;
@@ -407,7 +413,7 @@ usersRouter.post("/forgot-password/reset", async (req, res, next) => {
     forgotOtpStore.delete(key);
     const passwordHash = await bcrypt.hash(newPassword, 10);
     const user = await CustomerUser.findOneAndUpdate(
-      { tenantId: tenantId ? new mongoose.Types.ObjectId(tenantId) : null, phone: phone.trim() },
+      { tenantId: parseTenantId(tenantId), phone: phone.trim() },
       { $set: { passwordHash } },
       { new: true }
     );
@@ -520,7 +526,10 @@ usersRouter.get("/orders", async (req, res, next) => {
       ],
     };
     if (useTenantFilter && tenantId) {
-      filter.tenantId = new mongoose.Types.ObjectId(tenantId);
+      const parsedId = parseTenantId(tenantId);
+      if (parsedId) {
+        filter.tenantId = parsedId;
+      }
     }
 
     const orders = await OrderModel.find(filter).sort({ createdAt: -1 }).limit(50).lean();

@@ -19,6 +19,23 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       throw new Error("Ebarimt TIN (ebarimtTin) is not configured for this tenant");
     }
 
+    const isTest = tenant.ebarimtTest === true || process.env.NODE_ENV !== "production";
+    const baseUrl = (isTest ? EBARIMT_TEST_URL : EBARIMT_URL).replace(/\/$/, "");
+
+    if (receiptType === "B2B_RECEIPT" && customerTin) {
+      const checkUrl = `${baseUrl}/rest/checkInformation`;
+      console.log(`[Ebarimt] Checking company register: ${checkUrl} for TIN: ${customerTin}`);
+      try {
+        const checkRes = await axios.post(checkUrl, { registerNo: customerTin }, {
+          headers: { "Content-Type": "application/json" },
+          timeout: 5000,
+        });
+        console.log(`[Ebarimt] checkInformation response:`, JSON.stringify(checkRes.data));
+      } catch (err: any) {
+        console.error(`[Ebarimt] checkInformation failed for ${customerTin}:`, err.message);
+      }
+    }
+
     const districtCode = getDistrictCode(tenant.ebarimtDistrict || "", tenant.ebarimtKhoroo || "01");
     const nuatTulukhEsekh = tenant.ebarimtVat === true;
 
@@ -86,8 +103,6 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       }],
     };
 
-    const isTest = tenant.ebarimtTest === true || process.env.NODE_ENV !== "production";
-    const baseUrl = (isTest ? EBARIMT_TEST_URL : EBARIMT_URL).replace(/\/$/, "");
     const requestUrl = `${baseUrl}/rest/receipt`;
     console.log(`[Ebarimt] Issuing receipt: ${requestUrl} (test=${isTest})`, JSON.stringify(payload));
 

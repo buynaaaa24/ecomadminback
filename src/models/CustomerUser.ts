@@ -8,8 +8,8 @@ const CustomerUserSchema = new Schema(
   {
     tenantId: { type: Schema.Types.ObjectId, ref: "Tenant", index: true, default: null },
 
-    firstName: { type: String, required: true, trim: true },
-    lastName:  { type: String, required: true, trim: true },
+    firstName: { type: String, trim: true, default: "" },
+    lastName:  { type: String, trim: true, default: "" },
 
     email: {
       type: String,

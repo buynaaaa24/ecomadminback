@@ -9,7 +9,7 @@ export const orderSchema = new Schema(
     // Populated when using the shared (central) database
     tenantId: { type: Schema.Types.ObjectId, ref: "Tenant", index: true },
     customerInfo: {
-      lastName: { type: String, required: true },
+      lastName: { type: String, default: "" },
       firstName: { type: String, required: true },
       phone: { type: String, required: true },
       email: { type: String, default: "" },

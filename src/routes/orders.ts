@@ -59,7 +59,7 @@ ordersRouter.post("/public", async (req, res, next) => {
       res.status(400).json({ error: "tenantId is required" });
       return;
     }
-    if (!customerInfo || !customerInfo.lastName || !customerInfo.firstName || !customerInfo.phone || !customerInfo.address) {
+    if (!customerInfo || !customerInfo.firstName || !customerInfo.phone || !customerInfo.address) {
       res.status(400).json({ error: "Customer shipping information is incomplete" });
       return;
     }
