@@ -274,10 +274,34 @@ ordersRouter.post("/public", async (req, res, next) => {
           orderNumber,
           items: savedItems,
         };
-        const finalCustomerTin = (customerTin && String(customerTin).trim()) ? String(customerTin).trim() : (tenant?.ebarimtTin || "");
+        let finalCustomerTin = (customerTin && String(customerTin).trim()) ? String(customerTin).trim() : (tenant?.ebarimtTin || "");
         if ((!customerTin || !String(customerTin).trim()) && tenant?.ebarimtTin) {
           console.log(`[Ebarimt] customerTin missing; falling back to tenant.ebarimtTin=${tenant.ebarimtTin}`);
         }
+
+        // If customer provided a register number (7-digit), resolve it to a TIN using ebarimt API
+        try {
+          const maybeRegister = String(customerTin || "").trim();
+          if (!finalCustomerTin && maybeRegister && /^\d{7}$/.test(maybeRegister)) {
+            const tinUrl = `https://api.ebarimt.mn/api/info/check/getTinInfo?regNo=${maybeRegister}`;
+            console.log(`[Ebarimt] Resolving register ${maybeRegister} via ${tinUrl}`);
+            const tinRes = await fetch(tinUrl, { method: "GET", headers: { "Accept": "application/json" } });
+            if (tinRes.ok) {
+              const tinJson = await tinRes.json().catch(() => null);
+              if (tinJson && tinJson.data) {
+                finalCustomerTin = String(tinJson.data);
+                console.log(`[Ebarimt] Resolved register ${maybeRegister} -> TIN ${finalCustomerTin}`);
+              } else {
+                console.log(`[Ebarimt] Ebarimt getTinInfo returned no data for ${maybeRegister}:`, tinJson);
+              }
+            } else {
+              console.log(`[Ebarimt] getTinInfo request failed: ${tinRes.status} ${tinRes.statusText}`);
+            }
+          }
+        } catch (lookupErr: any) {
+          console.error(`[Ebarimt] Error resolving register to TIN:`, lookupErr?.message || lookupErr);
+        }
+
         const ebarimtDoc = await issueEbarimt(tempOrder, tenant, ebarimtType || "B2C_RECEIPT", finalCustomerTin);
         if (ebarimtDoc) {
           for (const item of savedItems) {
