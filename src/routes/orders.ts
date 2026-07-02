@@ -244,7 +244,9 @@ ordersRouter.post("/public", async (req, res, next) => {
     // 3. Generate tracking order number
     const orderNumber = `E-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-    const paymentStatus = paymentMethod === "qpay" ? "paid" : "pending";
+    // 'cash' is used as a test stand-in for QPay, so treat it as paid too
+    // (auto-issues ebarimt + sends the confirmation SMS, mirroring QPay).
+    const paymentStatus = paymentMethod === "qpay" || paymentMethod === "cash" ? "paid" : "pending";
 
     const savedItems = items.map((item) => {
       return {
