@@ -274,7 +274,11 @@ ordersRouter.post("/public", async (req, res, next) => {
           orderNumber,
           items: savedItems,
         };
-        const ebarimtDoc = await issueEbarimt(tempOrder, tenant, ebarimtType || "B2C_RECEIPT", customerTin || "");
+        const finalCustomerTin = (customerTin && String(customerTin).trim()) ? String(customerTin).trim() : (tenant?.ebarimtTin || "");
+        if ((!customerTin || !String(customerTin).trim()) && tenant?.ebarimtTin) {
+          console.log(`[Ebarimt] customerTin missing; falling back to tenant.ebarimtTin=${tenant.ebarimtTin}`);
+        }
+        const ebarimtDoc = await issueEbarimt(tempOrder, tenant, ebarimtType || "B2C_RECEIPT", finalCustomerTin);
         if (ebarimtDoc) {
           for (const item of savedItems) {
             item.ebarimtBillId = ebarimtDoc.billId || "";
