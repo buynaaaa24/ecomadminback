@@ -13,9 +13,10 @@ const CustomerUserSchema = new Schema(
 
     email: {
       type: String,
-      required: true,
+      required: false,
       lowercase: true,
       trim: true,
+      default: "",
       index: true,
     },
     phone: {
@@ -36,7 +37,7 @@ const CustomerUserSchema = new Schema(
 );
 
 // Compound index so the same email can exist in different tenants
-CustomerUserSchema.index({ tenantId: 1, email: 1 }, { unique: true });
+CustomerUserSchema.index({ tenantId: 1, email: 1 }, { unique: true, sparse: true });
 
 export type CustomerUserDoc = mongoose.InferSchemaType<typeof CustomerUserSchema>;
 export const CustomerUser =

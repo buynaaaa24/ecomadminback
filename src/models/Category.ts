@@ -9,6 +9,7 @@ const CategorySchema = new Schema(
     image: { type: String, default: "" },
     banner: { type: String, default: "" },
     status: { type: String, default: "active" }, // active | inactive
+    sortOrder: { type: Number, default: 0 },
   },
   { timestamps: true },
 );
