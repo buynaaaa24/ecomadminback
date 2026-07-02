@@ -274,17 +274,17 @@ ordersRouter.post("/public", async (req, res, next) => {
           orderNumber,
           items: savedItems,
         };
-        let finalCustomerTin = (customerTin && String(customerTin).trim()) ? String(customerTin).trim() : (tenant?.ebarimtTin || "");
-        if ((!customerTin || !String(customerTin).trim()) && tenant?.ebarimtTin) {
-          console.log(`[Ebarimt] customerTin missing; falling back to tenant.ebarimtTin=${tenant.ebarimtTin}`);
-        }
-
-        // If customer provided a register number (7-digit), resolve it to a TIN using ebarimt API
+        // Determine finalCustomerTin:
+        // - If frontend provided a numeric 7-digit value, treat it as a register number and attempt to resolve to a full TIN.
+        // - If frontend provided a non-7-digit value, assume it's already a TIN and use it.
+        // - If resolution fails or no customerTin provided, fall back to tenant.ebarimtTin when available.
+        let finalCustomerTin = "";
+        const rawCustomer = String(customerTin || "").trim();
         try {
-          const maybeRegister = String(customerTin || "").trim();
-          if (!finalCustomerTin && maybeRegister && /^\d{7}$/.test(maybeRegister)) {
+          if (rawCustomer && /^\d{7}$/.test(rawCustomer)) {
+            const maybeRegister = rawCustomer;
             const tinUrl = `https://api.ebarimt.mn/api/info/check/getTinInfo?regNo=${maybeRegister}`;
-            console.log(`[Ebarimt] Resolving register ${maybeRegister} via ${tinUrl}`);
+            console.log(`[Ebarimt] Provided customerTin looks like register ${maybeRegister}; resolving via ${tinUrl}`);
             const tinRes = await fetch(tinUrl, { method: "GET", headers: { "Accept": "application/json" } });
             if (tinRes.ok) {
               const tinJson = await tinRes.json().catch(() => null);
@@ -292,14 +292,22 @@ ordersRouter.post("/public", async (req, res, next) => {
                 finalCustomerTin = String(tinJson.data);
                 console.log(`[Ebarimt] Resolved register ${maybeRegister} -> TIN ${finalCustomerTin}`);
               } else {
-                console.log(`[Ebarimt] Ebarimt getTinInfo returned no data for ${maybeRegister}:`, tinJson);
+                console.log(`[Ebarimt] getTinInfo returned no data for ${maybeRegister}:`, tinJson);
               }
             } else {
               console.log(`[Ebarimt] getTinInfo request failed: ${tinRes.status} ${tinRes.statusText}`);
             }
+          } else if (rawCustomer) {
+            // Provided value that is not 7-digit — assume it's already a TIN
+            finalCustomerTin = rawCustomer;
           }
         } catch (lookupErr: any) {
           console.error(`[Ebarimt] Error resolving register to TIN:`, lookupErr?.message || lookupErr);
+        }
+
+        if (!finalCustomerTin) {
+          finalCustomerTin = tenant?.ebarimtTin || "";
+          if (finalCustomerTin) console.log(`[Ebarimt] Using tenant.ebarimtTin fallback=${finalCustomerTin}`);
         }
 
         const ebarimtDoc = await issueEbarimt(tempOrder, tenant, ebarimtType || "B2C_RECEIPT", finalCustomerTin);
