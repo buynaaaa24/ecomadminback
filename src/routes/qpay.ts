@@ -320,7 +320,6 @@ qpayRouter.post("/invoice", async (req, res, next) => {
       bank_accounts: bank,
     };
 
-    // logToFile("Creating QPay invoice", { invoicePayload });
 
     const { data } = await axios.post(
       `${QPAY_BASE}/v2/invoice`,
@@ -328,7 +327,6 @@ qpayRouter.post("/invoice", async (req, res, next) => {
       { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     );
 
-    logToFile("QPay invoice created", data);
 
     // Save to QuickQpayObject (compatible with udirdlagaBack)
     await QuickQpayObject.create({
