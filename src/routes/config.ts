@@ -80,7 +80,6 @@ configRouter.get("/", async (req, res, next) => {
       theme: {
         layout: t.layout,
         homepageSections: (() => {
-          const bType = t.bentoType ?? "category";
           const list: any[] = [
             {
               type: "HeroBanner",
@@ -91,23 +90,47 @@ configRouter.get("/", async (req, res, next) => {
                 smallSlides: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
               },
             },
-            { type: "CategoryProductSection", props: {} },
           ];
 
-          if (bType === "category") {
+          const layout = Array.isArray((t as any).homepageLayout) && (t as any).homepageLayout.length > 0
+            ? (t as any).homepageLayout
+            : [];
+
+          if (layout.length > 0) {
+            layout.forEach((item: string) => {
+              if (item === "bento") {
+                list.push({
+                  type: "GroceryBento",
+                  props: {
+                    tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [],
+                    sectionTitle: t.bentoTitle ?? "",
+                  },
+                });
+              } else if (item === "banner") {
+                list.push({
+                  type: "BentoBannerSection",
+                  props: {
+                    image: t.bentoBannerImage ?? "",
+                    link: t.bentoBannerLink ?? "",
+                  },
+                });
+              } else {
+                list.push({
+                  type: "CategoryProductSection",
+                  props: {
+                    categoryId: item,
+                  },
+                });
+              }
+            });
+          } else {
+            // Default fallback
+            list.push({ type: "CategoryProductSection", props: {} });
             list.push({
               type: "GroceryBento",
               props: {
                 tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [],
                 sectionTitle: t.bentoTitle ?? "",
-              },
-            });
-          } else if (bType === "banner") {
-            list.push({
-              type: "BentoBannerSection",
-              props: {
-                image: t.bentoBannerImage ?? "",
-                link: t.bentoBannerLink ?? "",
               },
             });
           }
@@ -123,6 +146,7 @@ configRouter.get("/", async (req, res, next) => {
       bentoType:         t.bentoType ?? "category",
       bentoBannerImage:  t.bentoBannerImage ?? "",
       bentoBannerLink:   t.bentoBannerLink ?? "",
+      homepageLayout:    (t as any).homepageLayout ?? [],
       contact: {
         email: t.contactEmail,
         phone: t.contactPhone,
@@ -229,6 +253,7 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       bentoType,
       bentoBannerImage,
       bentoBannerLink,
+      homepageLayout,
       contactEmail,
       contactPhone,
       address,
@@ -286,6 +311,7 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (bentoType   !== undefined) (tenant as any).bentoType   = bentoType;
     if (bentoBannerImage !== undefined) (tenant as any).bentoBannerImage = bentoBannerImage;
     if (bentoBannerLink !== undefined) (tenant as any).bentoBannerLink = bentoBannerLink;
+    if (homepageLayout !== undefined) (tenant as any).homepageLayout = homepageLayout;
     if (contactEmail !== undefined) tenant.contactEmail = contactEmail;
     if (contactPhone !== undefined) tenant.contactPhone = contactPhone;
     if (address !== undefined) tenant.address = address;
