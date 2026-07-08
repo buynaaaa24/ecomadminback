@@ -350,7 +350,7 @@ ordersRouter.post("/public", async (req, res, next) => {
       const link = `${base}/order/${orderNumber}`;
       await sendSms(
         customerInfo.phone,
-        `Таны #${orderNumber} захиалга амжилттай баталгаажлаа. Явцтай танилцах: ${link}`,
+        `Tany zakhialga amjilttai batalgaajlaa. Endees shalgana uu: ${link}`,
       );
     } catch (smsErr: any) {
       console.error("[Order SMS] send failed:", smsErr?.message || smsErr);
