@@ -65,7 +65,7 @@ const TenantSchema = new Schema(
     bentoType:         { type: String, default: "category" },
     bentoBannerImage:  { type: String, default: "" },
     bentoBannerLink:   { type: String, default: "" },
-    homepageLayout:    { type: [String], default: [] },
+    homepageLayout:    { type: Schema.Types.Mixed, default: [] },
 
     // ── Feature flags ───────────────────────────────────────────────────────────
     features: {

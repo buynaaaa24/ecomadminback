@@ -97,30 +97,57 @@ configRouter.get("/", async (req, res, next) => {
             : [];
 
           if (layout.length > 0) {
-            layout.forEach((item: string) => {
-              if (item === "bento") {
-                list.push({
-                  type: "GroceryBento",
-                  props: {
-                    tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [],
-                    sectionTitle: t.bentoTitle ?? "",
-                  },
-                });
-              } else if (item === "banner") {
-                list.push({
-                  type: "BentoBannerSection",
-                  props: {
-                    image: t.bentoBannerImage ?? "",
-                    link: t.bentoBannerLink ?? "",
-                  },
-                });
-              } else {
-                list.push({
-                  type: "CategoryProductSection",
-                  props: {
-                    categoryId: item,
-                  },
-                });
+            layout.forEach((item: any) => {
+              if (typeof item === "string") {
+                if (item === "bento") {
+                  list.push({
+                    type: "GroceryBento",
+                    props: {
+                      tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [],
+                      sectionTitle: t.bentoTitle ?? "",
+                    },
+                  });
+                } else if (item === "banner") {
+                  list.push({
+                    type: "BentoBannerSection",
+                    props: {
+                      image: t.bentoBannerImage ?? "",
+                      link: t.bentoBannerLink ?? "",
+                    },
+                  });
+                } else {
+                  list.push({
+                    type: "CategoryProductSection",
+                    props: {
+                      categoryId: item,
+                    },
+                  });
+                }
+              } else if (item && typeof item === "object") {
+                if (item.type === "bento") {
+                  list.push({
+                    type: "GroceryBento",
+                    props: {
+                      tiles: Array.isArray(item.bentoTiles) ? item.bentoTiles : [],
+                      sectionTitle: item.bentoTitle ?? "",
+                    },
+                  });
+                } else if (item.type === "banner") {
+                  list.push({
+                    type: "BentoBannerSection",
+                    props: {
+                      image: item.bentoBannerImage ?? "",
+                      link: item.bentoBannerLink ?? "",
+                    },
+                  });
+                } else if (item.type === "category") {
+                  list.push({
+                    type: "CategoryProductSection",
+                    props: {
+                      categoryId: item.categoryId || item.id,
+                    },
+                  });
+                }
               }
             });
           } else {
