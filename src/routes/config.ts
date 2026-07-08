@@ -79,25 +79,50 @@ configRouter.get("/", async (req, res, next) => {
       },
       theme: {
         layout: t.layout,
-        homepageSections: [
-          {
-            type: "HeroBanner",
-            props: {
-              title: t.bannerTitle,
-              subtitle: t.bannerSubtitle,
-              bigSlides: Array.isArray(t.bannerSlidesBig) ? t.bannerSlidesBig : [],
-              smallSlides: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
+        homepageSections: (() => {
+          const bType = t.bentoType ?? "category";
+          const list: any[] = [
+            {
+              type: "HeroBanner",
+              props: {
+                title: t.bannerTitle,
+                subtitle: t.bannerSubtitle,
+                bigSlides: Array.isArray(t.bannerSlidesBig) ? t.bannerSlidesBig : [],
+                smallSlides: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
+              },
             },
-          },
-          { type: "CategoryProductSection", props: {} },
-          { type: "GroceryBento", props: { tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [], sectionTitle: t.bentoTitle ?? "" } },
-          { type: "BrandList", props: {} },
-        ],
+            { type: "CategoryProductSection", props: {} },
+          ];
+
+          if (bType === "category") {
+            list.push({
+              type: "GroceryBento",
+              props: {
+                tiles: Array.isArray(t.bentoTiles) ? t.bentoTiles : [],
+                sectionTitle: t.bentoTitle ?? "",
+              },
+            });
+          } else if (bType === "banner") {
+            list.push({
+              type: "BentoBannerSection",
+              props: {
+                image: t.bentoBannerImage ?? "",
+                link: t.bentoBannerLink ?? "",
+              },
+            });
+          }
+
+          list.push({ type: "BrandList", props: {} });
+          return list;
+        })(),
       },
       bannerSlidesBig:   Array.isArray(t.bannerSlidesBig)   ? t.bannerSlidesBig   : [],
       bannerSlidesSmall: Array.isArray(t.bannerSlidesSmall) ? t.bannerSlidesSmall : [],
       bentoTiles:        Array.isArray(t.bentoTiles)        ? t.bentoTiles        : [],
       bentoTitle:        t.bentoTitle ?? "",
+      bentoType:         t.bentoType ?? "category",
+      bentoBannerImage:  t.bentoBannerImage ?? "",
+      bentoBannerLink:   t.bentoBannerLink ?? "",
       contact: {
         email: t.contactEmail,
         phone: t.contactPhone,
@@ -201,6 +226,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
       bannerSlidesSmall,
       bentoTiles,
       bentoTitle,
+      bentoType,
+      bentoBannerImage,
+      bentoBannerLink,
       contactEmail,
       contactPhone,
       address,
@@ -255,6 +283,9 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     if (bannerSlidesSmall !== undefined) tenant.bannerSlidesSmall = bannerSlidesSmall;
     if (bentoTiles  !== undefined) tenant.bentoTiles  = bentoTiles;
     if (bentoTitle  !== undefined) tenant.bentoTitle  = bentoTitle;
+    if (bentoType   !== undefined) (tenant as any).bentoType   = bentoType;
+    if (bentoBannerImage !== undefined) (tenant as any).bentoBannerImage = bentoBannerImage;
+    if (bentoBannerLink !== undefined) (tenant as any).bentoBannerLink = bentoBannerLink;
     if (contactEmail !== undefined) tenant.contactEmail = contactEmail;
     if (contactPhone !== undefined) tenant.contactPhone = contactPhone;
     if (address !== undefined) tenant.address = address;
