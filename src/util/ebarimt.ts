@@ -80,6 +80,7 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       taxType: nuatTulukhEsekh ? "VAT_ABLE" : "VAT_FREE",
       merchantTin,
       items,
+      customerTin: customerTin || "",
     }];
 
     const payload: any = {
@@ -95,6 +96,7 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       totalVAT: Math.round((totalVAT + Number.EPSILON) * 100000) / 100000,
       totalCityTax: 0,
       customerNo: customerTin || "",
+      customerTin: customerTin || "",
       receipts,
       payments: [{
         code: "CASH",

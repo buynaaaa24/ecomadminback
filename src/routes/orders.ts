@@ -274,7 +274,43 @@ ordersRouter.post("/public", async (req, res, next) => {
           orderNumber,
           items: savedItems,
         };
-        const ebarimtDoc = await issueEbarimt(tempOrder, tenant, ebarimtType || "B2C_RECEIPT", customerTin || "");
+        // Determine finalCustomerTin:
+        // - If frontend provided a numeric 7-digit value, treat it as a register number and attempt to resolve to a full TIN.
+        // - If frontend provided a non-7-digit value, assume it's already a TIN and use it.
+        // - If resolution fails or no customerTin provided, fall back to tenant.ebarimtTin when available.
+        let finalCustomerTin = "";
+        const rawCustomer = String(customerTin || "").trim();
+        try {
+          if (rawCustomer && /^\d{7}$/.test(rawCustomer)) {
+            const maybeRegister = rawCustomer;
+            const tinUrl = `https://api.ebarimt.mn/api/info/check/getTinInfo?regNo=${maybeRegister}`;
+            console.log(`[Ebarimt] Provided customerTin looks like register ${maybeRegister}; resolving via ${tinUrl}`);
+            const tinRes = await fetch(tinUrl, { method: "GET", headers: { "Accept": "application/json" } });
+            if (tinRes.ok) {
+              const tinJson = await tinRes.json().catch(() => null);
+              if (tinJson && tinJson.data) {
+                finalCustomerTin = String(tinJson.data);
+                console.log(`[Ebarimt] Resolved register ${maybeRegister} -> TIN ${finalCustomerTin}`);
+              } else {
+                console.log(`[Ebarimt] getTinInfo returned no data for ${maybeRegister}:`, tinJson);
+              }
+            } else {
+              console.log(`[Ebarimt] getTinInfo request failed: ${tinRes.status} ${tinRes.statusText}`);
+            }
+          } else if (rawCustomer) {
+            // Provided value that is not 7-digit — assume it's already a TIN
+            finalCustomerTin = rawCustomer;
+          }
+        } catch (lookupErr: any) {
+          console.error(`[Ebarimt] Error resolving register to TIN:`, lookupErr?.message || lookupErr);
+        }
+
+        if (!finalCustomerTin) {
+          finalCustomerTin = tenant?.ebarimtTin || "";
+          if (finalCustomerTin) console.log(`[Ebarimt] Using tenant.ebarimtTin fallback=${finalCustomerTin}`);
+        }
+
+        const ebarimtDoc = await issueEbarimt(tempOrder, tenant, ebarimtType || "B2C_RECEIPT", finalCustomerTin);
         if (ebarimtDoc) {
           for (const item of savedItems) {
             item.ebarimtBillId = ebarimtDoc.billId || "";
@@ -314,7 +350,7 @@ ordersRouter.post("/public", async (req, res, next) => {
       const link = `${base}/order/${orderNumber}`;
       await sendSms(
         customerInfo.phone,
-        `Таны #${orderNumber} захиалга амжилттай баталгаажлаа. Явцтай танилцах: ${link}`,
+        `Tany zakhialga amjilttai batalgaajlaa. Endees shalgana uu: ${link}`,
       );
     } catch (smsErr: any) {
       console.error("[Order SMS] send failed:", smsErr?.message || smsErr);

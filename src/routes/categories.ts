@@ -41,7 +41,7 @@ categoriesRouter.get("/public", async (req, res, next) => {
 
     const { Model, useTenantFilter } = await resolveCategoryModel(tenantId);
     const filter = useTenantFilter ? { tenantId, status: "active" } : { status: "active" };
-    const list = await Model.find(filter).sort({ name: 1 }).lean();
+    const list = await Model.find(filter).sort({ sortOrder: 1, name: 1 }).lean();
     res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);
@@ -51,6 +51,30 @@ categoriesRouter.get("/public", async (req, res, next) => {
 // ── Admin endpoints ───────────────────────────────────────────────────────────
 
 categoriesRouter.use(requireAdminAuth);
+
+// ── PATCH /api/categories/reorder — bulk update sortOrder ────────────────────
+categoriesRouter.patch("/reorder", async (req, res, next) => {
+  try {
+    const a = req.admin!;
+    const tenantId = a.role !== "superadmin" ? a.tenantId : undefined;
+    const { order } = req.body as { order: { id: string; sortOrder: number }[] };
+    if (!Array.isArray(order)) {
+      res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "order array required" } });
+      return;
+    }
+    const { Model, useTenantFilter } = await resolveCategoryModel(tenantId);
+    await Promise.all(
+      order.map(({ id, sortOrder }) => {
+        const filter: Record<string, unknown> = { _id: id };
+        if (useTenantFilter && tenantId) filter.tenantId = tenantId;
+        return Model.findOneAndUpdate(filter, { sortOrder });
+      })
+    );
+    res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
 
 categoriesRouter.get("/", async (req, res, next) => {
   try {
@@ -65,7 +89,7 @@ categoriesRouter.get("/", async (req, res, next) => {
       filter.tenantId = new mongoose.Types.ObjectId(targetTenantId);
     }
 
-    const list = await Model.find(filter).sort({ name: 1 }).lean();
+    const list = await Model.find(filter).sort({ sortOrder: 1, name: 1 }).lean();
     res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);

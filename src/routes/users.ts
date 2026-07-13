@@ -158,7 +158,7 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
       user = await CustomerUser.create({
         tenantId: parseTenantId(tenantId),
         phone: phone.trim(),
-        email: `${phone.trim()}@phone.local`,
+        email: ``,
         passwordHash: tmpHash,
         firstName: firstName?.trim() || "",
         lastName: lastName?.trim() || "",
@@ -237,7 +237,7 @@ usersRouter.post("/register", async (req, res, next) => {
 
     const tenantId = resolveTenantId(req);
     const resolvedPhone = phone?.trim() ?? "";
-    const emailLower = (email?.trim() || `${resolvedPhone}@phone.local`).toLowerCase();
+    const emailLower = (email?.trim() || "").toLowerCase();
     const resolvedFirstName = firstName?.trim() || "";
     const resolvedLastName = lastName?.trim() || "";
 

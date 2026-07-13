@@ -61,6 +61,11 @@ const TenantSchema = new Schema(
     bentoTiles:        { type: Schema.Types.Mixed, default: [] },
     /** Custom heading for the GroceryBento section */
     bentoTitle:        { type: String, default: "" },
+    /** Control layout of the bento slot: category | banner | hide */
+    bentoType:         { type: String, default: "category" },
+    bentoBannerImage:  { type: String, default: "" },
+    bentoBannerLink:   { type: String, default: "" },
+    homepageLayout:    { type: Schema.Types.Mixed, default: [] },
 
     // ── Feature flags ───────────────────────────────────────────────────────────
     features: {
