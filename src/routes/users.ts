@@ -300,6 +300,65 @@ usersRouter.post("/register", async (req, res, next) => {
   }
 });
 
+// ── POST /api/users/oauth ────────────────────────────────────────────────────
+// Upsert a customer by verified OAuth email (Google/Facebook) and issue tokens.
+// The storefront's OAuth callback calls this after verifying the provider token.
+
+usersRouter.post("/oauth", async (req, res, next) => {
+  try {
+    const { email, firstName, lastName, provider } = req.body as {
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+      provider?: string;
+    };
+    if (!email) {
+      res.status(400).json({ error: "И-мэйл шаардлагатай" });
+      return;
+    }
+    const tenantId = resolveTenantId(req);
+    const emailLower = email.trim().toLowerCase();
+
+    let user = await CustomerUser.findOne({
+      tenantId: parseTenantId(tenantId),
+      email: emailLower,
+    });
+
+    if (!user) {
+      // Random unusable password — OAuth users log in via provider, not password.
+      const randomPw = `${provider ?? "oauth"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const passwordHash = await bcrypt.hash(randomPw, 10);
+      user = await CustomerUser.create({
+        tenantId: parseTenantId(tenantId),
+        email: emailLower,
+        phone: "",
+        passwordHash,
+        firstName: firstName?.trim() || emailLower.split("@")[0],
+        lastName: lastName?.trim() || "",
+        refreshTokens: [],
+      });
+    }
+
+    const accessToken = signAccess(String(user._id));
+    const newRefresh = signRefresh(String(user._id));
+    await CustomerUser.findByIdAndUpdate(user._id, { $push: { refreshTokens: newRefresh } });
+
+    res.json({
+      accessToken,
+      refreshToken: newRefresh,
+      user: {
+        id: String(user._id),
+        email: user.email,
+        phone: user.phone,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ── POST /api/users/login ────────────────────────────────────────────────────
 
 usersRouter.post("/login", async (req, res, next) => {
