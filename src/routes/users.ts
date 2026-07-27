@@ -306,10 +306,11 @@ usersRouter.post("/register", async (req, res, next) => {
 
 usersRouter.post("/oauth", async (req, res, next) => {
   try {
-    const { email, firstName, lastName, provider } = req.body as {
+    const { email, firstName, lastName, avatar, provider } = req.body as {
       email?: string;
       firstName?: string;
       lastName?: string;
+      avatar?: string;
       provider?: string;
     };
     if (!email) {
@@ -335,8 +336,13 @@ usersRouter.post("/oauth", async (req, res, next) => {
         passwordHash,
         firstName: firstName?.trim() || emailLower.split("@")[0],
         lastName: lastName?.trim() || "",
+        avatar: avatar?.trim() || "",
         refreshTokens: [],
       });
+    } else if (avatar && avatar.trim() && avatar.trim() !== user.avatar) {
+      // Keep the avatar fresh on subsequent logins (Google photos can change).
+      user.avatar = avatar.trim();
+      await user.save();
     }
 
     const accessToken = signAccess(String(user._id));
@@ -352,6 +358,7 @@ usersRouter.post("/oauth", async (req, res, next) => {
         phone: user.phone,
         firstName: user.firstName,
         lastName: user.lastName,
+        avatar: user.avatar || "",
       },
     });
   } catch (e) {
@@ -546,6 +553,7 @@ usersRouter.get("/me", async (req, res, next) => {
       phone: user.phone,
       firstName: user.firstName,
       lastName: user.lastName,
+      avatar: (user as any).avatar || "",
     });
   } catch (e) {
     next(e);

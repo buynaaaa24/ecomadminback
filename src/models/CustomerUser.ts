@@ -27,6 +27,9 @@ const CustomerUserSchema = new Schema(
 
     passwordHash: { type: String, required: true },
 
+    /** Profile photo URL — currently only populated from Google OAuth ("picture" claim). */
+    avatar: { type: String, trim: true, default: "" },
+
     /** Hashed refresh tokens (one per active device/browser). */
     refreshTokens: [{ type: String }],
 
