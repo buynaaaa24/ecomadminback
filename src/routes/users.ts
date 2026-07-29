@@ -2,6 +2,7 @@ import { Router } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
+import axios from "axios";
 import { sendSms } from "../util/sms.js";
 import { CustomerUser } from "../models/CustomerUser.js";
 import { Tenant } from "../models/Tenant.js";
@@ -329,6 +330,198 @@ usersRouter.post("/register", async (req, res, next) => {
     });
   } catch (e) {
     next(e);
+  }
+});
+
+// ── GET /api/users/oauth/google (and /api/auth/oauth/google) ─────────────────
+usersRouter.get("/oauth/google", (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const host = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost") as string;
+  const proto = (req.headers["x-forwarded-proto"] ?? "https") as string;
+  const origin = `${proto}://${host}`;
+  if (!clientId) {
+    res.redirect(`${origin}/account?error=google_not_configured`);
+    return;
+  }
+  const redirect = (req.query.redirect as string) ?? "/account";
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: `${origin}/api/auth/oauth/google/callback`,
+    response_type: "code",
+    scope: "openid email profile",
+    access_type: "offline",
+    prompt: "select_account",
+    state: redirect,
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+// ── GET /api/users/oauth/google/callback (and /api/auth/oauth/google/callback)
+usersRouter.get("/oauth/google/callback", async (req, res) => {
+  const host = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost") as string;
+  const proto = (req.headers["x-forwarded-proto"] ?? "https") as string;
+  const origin = `${proto}://${host}`;
+  const code = req.query.code as string | undefined;
+  const state = (req.query.state as string | undefined) ?? "/account";
+  const safeRedirect = state.startsWith("/") && !state.startsWith("//") ? state : "/account";
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!code || !clientId || !clientSecret) {
+    res.redirect(`${origin}/account?error=google_oauth`);
+    return;
+  }
+
+  try {
+    const tokenRes = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: `${origin}/api/auth/oauth/google/callback`,
+        grant_type: "authorization_code",
+      }).toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
+    const token = tokenRes.data;
+    if (!token?.access_token) throw new Error("token exchange failed");
+
+    const infoRes = await axios.get("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    const info = infoRes.data;
+    if (!info?.email) throw new Error("no email");
+
+    const tenantId = resolveTenantId(req);
+    const emailLower = info.email.trim().toLowerCase();
+
+    let user = await CustomerUser.findOne({
+      tenantId: parseTenantId(tenantId),
+      email: emailLower,
+    });
+
+    if (!user) {
+      const randomPw = `google-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const passwordHash = await bcrypt.hash(randomPw, 10);
+      user = await CustomerUser.create({
+        tenantId: parseTenantId(tenantId),
+        email: emailLower,
+        phone: "",
+        passwordHash,
+        firstName: info.given_name?.trim() || emailLower.split("@")[0],
+        lastName: info.family_name?.trim() || "",
+        avatar: info.picture?.trim() || "",
+        refreshTokens: [],
+      });
+    } else if (info.picture && info.picture.trim() && info.picture.trim() !== user.avatar) {
+      user.avatar = info.picture.trim();
+      await user.save();
+    }
+
+    const accessToken = signAccess(String(user._id));
+    const newRefresh = signRefresh(String(user._id));
+    await CustomerUser.findByIdAndUpdate(user._id, { $push: { refreshTokens: newRefresh }, lastLogin: new Date() });
+
+    setAuthCookies(res, accessToken, newRefresh);
+    res.redirect(`${origin}${safeRedirect}`);
+  } catch (err: any) {
+    console.error("[Google OAuth Error]", err.message || err);
+    res.redirect(`${origin}/account?error=google_oauth`);
+  }
+});
+
+// ── GET /api/users/oauth/facebook (and /api/auth/oauth/facebook) ───────────────
+usersRouter.get("/oauth/facebook", (req, res) => {
+  const appId = process.env.FACEBOOK_APP_ID;
+  const host = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost") as string;
+  const proto = (req.headers["x-forwarded-proto"] ?? "https") as string;
+  const origin = `${proto}://${host}`;
+  if (!appId) {
+    res.redirect(`${origin}/account?error=facebook_not_configured`);
+    return;
+  }
+  const redirect = (req.query.redirect as string) ?? "/account";
+  const params = new URLSearchParams({
+    client_id: appId,
+    redirect_uri: `${origin}/api/auth/oauth/facebook/callback`,
+    response_type: "code",
+    scope: "email public_profile",
+    state: redirect,
+  });
+  res.redirect(`https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`);
+});
+
+// ── GET /api/users/oauth/facebook/callback (and /api/auth/oauth/facebook/callback)
+usersRouter.get("/oauth/facebook/callback", async (req, res) => {
+  const host = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost") as string;
+  const proto = (req.headers["x-forwarded-proto"] ?? "https") as string;
+  const origin = `${proto}://${host}`;
+  const code = req.query.code as string | undefined;
+  const state = (req.query.state as string | undefined) ?? "/account";
+  const safeRedirect = state.startsWith("/") && !state.startsWith("//") ? state : "/account";
+
+  const appId = process.env.FACEBOOK_APP_ID;
+  const appSecret = process.env.FACEBOOK_APP_SECRET;
+  if (!code || !appId || !appSecret) {
+    res.redirect(`${origin}/account?error=facebook_oauth`);
+    return;
+  }
+
+  try {
+    const tokenUrl = `https://graph.facebook.com/v18.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(
+      `${origin}/api/auth/oauth/facebook/callback`
+    )}&client_secret=${appSecret}&code=${code}`;
+
+    const tokenRes = await axios.get(tokenUrl);
+    const token = tokenRes.data;
+    if (!token?.access_token) throw new Error("facebook token failed");
+
+    const infoUrl = `https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${token.access_token}`;
+    const infoRes = await axios.get(infoUrl);
+    const info = infoRes.data;
+
+    const email = info.email || `${info.id}@facebook.local`;
+    const nameParts = (info.name || "").split(" ");
+    const firstName = nameParts[0] || "FB";
+    const lastName = nameParts.slice(1).join(" ") || "";
+    const avatar = info.picture?.data?.url || "";
+
+    const tenantId = resolveTenantId(req);
+    const emailLower = email.trim().toLowerCase();
+
+    let user = await CustomerUser.findOne({
+      tenantId: parseTenantId(tenantId),
+      email: emailLower,
+    });
+
+    if (!user) {
+      const randomPw = `facebook-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const passwordHash = await bcrypt.hash(randomPw, 10);
+      user = await CustomerUser.create({
+        tenantId: parseTenantId(tenantId),
+        email: emailLower,
+        phone: "",
+        passwordHash,
+        firstName,
+        lastName,
+        avatar,
+        refreshTokens: [],
+      });
+    } else if (avatar && avatar !== user.avatar) {
+      user.avatar = avatar;
+      await user.save();
+    }
+
+    const accessToken = signAccess(String(user._id));
+    const newRefresh = signRefresh(String(user._id));
+    await CustomerUser.findByIdAndUpdate(user._id, { $push: { refreshTokens: newRefresh }, lastLogin: new Date() });
+
+    setAuthCookies(res, accessToken, newRefresh);
+    res.redirect(`${origin}${safeRedirect}`);
+  } catch (err: any) {
+    console.error("[Facebook OAuth Error]", err.message || err);
+    res.redirect(`${origin}/account?error=facebook_oauth`);
   }
 });
 
