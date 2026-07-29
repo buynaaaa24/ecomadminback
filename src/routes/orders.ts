@@ -248,9 +248,8 @@ ordersRouter.post("/public", async (req, res, next) => {
 
     // 3. Generate tracking order number (declared above)
 
-    // 'cash' is used as a test stand-in for QPay, so treat it as paid too
-    // (auto-issues ebarimt + sends the confirmation SMS, mirroring QPay).
-    const paymentStatus = paymentMethod === "qpay" || paymentMethod === "cash" ? "paid" : "pending";
+    // Initial payment status is pending until payment gateway (e.g. QPay) confirms payment
+    const paymentStatus: string = "pending";
 
     const savedItems = items.map((item) => {
       return {
