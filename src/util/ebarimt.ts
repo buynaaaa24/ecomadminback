@@ -5,19 +5,23 @@ const EBARIMT_URL = process.env.EBARIMT_URL ?? "http://103.143.40.43:7080";
 const EBARIMT_TEST_URL = process.env.EBARIMT_TEST_URL ?? "http://103.236.194.50:7080";
 
 function getDistrictCode(districtKod: string, khorooKod: string): string {
-  const d = (districtKod || "").trim().padStart(2, "0");
-  const k = (khorooKod || "01").trim().padStart(2, "0");
-  const combined = d + k;
-  if (/^\d{4}$/.test(combined)) return combined;
-  return "2501";
+  const dStr = (districtKod || "").toLowerCase();
+  let d = "25";
+  if (dStr.includes("сүхбаатар") || dStr.includes("sukhbaatar") || dStr === "25") d = "25";
+  else if (dStr.includes("баянзүрх") || dStr.includes("bayanzurkh") || dStr === "26") d = "26";
+  else if (dStr.includes("баянгол") || dStr.includes("bayangol") || dStr === "24") d = "24";
+  else if (dStr.includes("хан-уул") || dStr.includes("khan-uul") || dStr === "23") d = "23";
+  else if (dStr.includes("сонгинохайрхан") || dStr.includes("songinokhairkhan") || dStr === "27") d = "27";
+  else if (dStr.includes("чингэлтэй") || dStr.includes("chingeltei") || dStr === "28") d = "28";
+
+  const kNums = (khorooKod || "20").replace(/\D/g, "");
+  const k = (kNums || "20").padStart(2, "0");
+  return d + k;
 }
 
 export async function issueEbarimt(order: any, tenant: any, receiptType: string = "B2C_RECEIPT", customerTin: string = ""): Promise<any> {
   try {
-    const merchantTin = tenant.ebarimtTin;
-    if (!merchantTin) {
-      throw new Error("Ebarimt TIN (ebarimtTin) is not configured for this tenant");
-    }
+    const merchantTin = tenant.ebarimtTin || "37900846788";
 
     const isTest = tenant.ebarimtTest === true || process.env.NODE_ENV !== "production";
     const baseUrl = (isTest ? EBARIMT_TEST_URL : EBARIMT_URL).replace(/\/$/, "");
@@ -36,70 +40,61 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
       }
     }
 
-    const districtCode = getDistrictCode(tenant.ebarimtDistrict || "", tenant.ebarimtKhoroo || "01");
-    const nuatTulukhEsekh = tenant.ebarimtVat === true;
+    const districtCode = getDistrictCode(tenant.ebarimtDistrict || "", tenant.ebarimtKhoroo || "20");
+    const nuatTulukhEsekh = tenant.ebarimtVat !== false; // Default true
 
     // Map order items to ebarimt items
     const items = order.items.map((item: any) => {
-      const qty = Number(item.quantity);
-      const unitPrice = Number(item.price);
+      const qty = Number(item.quantity) || 1;
+      const unitPrice = Number(item.price) || 0;
       const totalAmount = unitPrice * qty;
 
       let totalVAT = 0;
       if (nuatTulukhEsekh) {
-        totalVAT = Math.abs(totalAmount / 1.1 / 10);
-        totalVAT = Math.round((totalVAT + Number.EPSILON) * 100000) / 100000;
+        totalVAT = Math.round((totalAmount / 1.1 / 10 + Number.EPSILON) * 100) / 100;
       }
 
       const itemObj: any = {
-        uramshuulaliinBaraaEsekh: false,
         name: item.name,
-        barCode: "UNDEFINED",
+        barCode: "",
         barCodeType: "UNDEFINED",
         classificationCode: item.classificationCode || "5020100",
-        measureUnit: "шир",
-        qty: qty.toFixed(2),
-        unitPrice: unitPrice.toFixed(2),
-        totalVat: totalVAT,
+        taxProductCode: "",
+        measureUnit: "ш",
+        qty: qty,
+        unitPrice: unitPrice,
+        totalVAT: totalVAT,
         totalCityTax: 0,
-        totalAmount,
+        totalAmount: totalAmount,
       };
-      if (!nuatTulukhEsekh) {
-        itemObj.taxProductCode = item.taxProductCode || "5020100";
-      }
       return itemObj;
     });
 
     const totalAmount = items.reduce((sum: number, x: any) => sum + x.totalAmount, 0);
-    const totalVAT = items.reduce((sum: number, x: any) => sum + x.totalVat, 0);
+    const totalVAT = items.reduce((sum: number, x: any) => sum + x.totalVAT, 0);
 
     const receipts = [{
       totalAmount: Math.round((totalAmount + Number.EPSILON) * 100) / 100,
-      totalVAT: Math.round((totalVAT + Number.EPSILON) * 100000) / 100000,
-      totalCityTax: "0.00",
+      totalVAT: Math.round((totalVAT + Number.EPSILON) * 100) / 100,
+      totalCityTax: 0,
       taxType: nuatTulukhEsekh ? "VAT_ABLE" : "VAT_FREE",
       merchantTin,
       items,
-      customerTin: customerTin || "",
+      ...(customerTin ? { customerTin } : {}),
     }];
 
     const payload: any = {
-      type: receiptType,
-      baiguullagiinId: merchantTin,
-      salbariinId: "001",
-      guilgeeniiDugaar: order.orderNumber,
-      branchNo: "001",
+      type: receiptType || "B2C_RECEIPT",
+      branchNo: "000",
       districtCode,
       posNo: "0001",
       merchantTin,
       totalAmount: Math.round((totalAmount + Number.EPSILON) * 100) / 100,
-      totalVAT: Math.round((totalVAT + Number.EPSILON) * 100000) / 100000,
+      totalVAT: Math.round((totalVAT + Number.EPSILON) * 100) / 100,
       totalCityTax: 0,
-      customerNo: customerTin || "",
-      customerTin: customerTin || "",
       receipts,
       payments: [{
-        code: "CASH",
+        code: "PAYMENT_CARD",
         paidAmount: Math.round((totalAmount + Number.EPSILON) * 100) / 100,
         status: "PAID",
       }],
