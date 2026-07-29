@@ -26,23 +26,26 @@ export async function issueEbarimt(order: any, tenant: any, receiptType: string 
     const isTest = tenant.ebarimtTest === true || process.env.NODE_ENV !== "production";
     const baseUrl = (isTest ? EBARIMT_TEST_URL : EBARIMT_URL).replace(/\/$/, "");
 
-    let finalCustomerTin = String(customerTin || "").trim();
-    if (receiptType === "B2B_RECEIPT" && finalCustomerTin) {
-      if (/^\d{7}$/.test(finalCustomerTin)) {
+    let finalCustomerTin = "";
+    if (receiptType === "B2B_RECEIPT") {
+      const rawTin = String(customerTin || "").trim();
+      if (rawTin && /^\d{7}$/.test(rawTin)) {
         try {
-          const posRes = await axios.get(`https://pos.zevtabs.mn/api/tatvaraasBaiguullagaAvya/${encodeURIComponent(finalCustomerTin)}`, { timeout: 3000 });
+          const posRes = await axios.get(`https://pos.zevtabs.mn/api/tatvaraasBaiguullagaAvya/${encodeURIComponent(rawTin)}`, { timeout: 3000 });
           if (posRes.data && posRes.data.tin) {
             finalCustomerTin = String(posRes.data.tin);
             console.log(`[Ebarimt] Resolved register ${customerTin} -> TIN ${finalCustomerTin}`);
           }
         } catch (_) {
           try {
-            const ebRes = await axios.get(`https://api.ebarimt.mn/api/info/check/getTinInfo?regNo=${encodeURIComponent(finalCustomerTin)}`, { timeout: 3000 });
+            const ebRes = await axios.get(`https://api.ebarimt.mn/api/info/check/getTinInfo?regNo=${encodeURIComponent(rawTin)}`, { timeout: 3000 });
             if (ebRes.data && ebRes.data.data) {
               finalCustomerTin = String(ebRes.data.data.vatpayerNumber || ebRes.data.data);
             }
           } catch (_) {}
         }
+      } else if (rawTin) {
+        finalCustomerTin = rawTin;
       }
     }
 
