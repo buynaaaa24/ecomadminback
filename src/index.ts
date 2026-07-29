@@ -63,8 +63,10 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
   res.json({ url });
 });
 
-// Common auth
-app.use("/api/auth", authRouter);
+// Admin dashboard auth — namespaced under /api/admin to avoid colliding with the
+// storefront's own /api/auth/* proxy routes (that collision previously let a stale
+// storefront deploy silently fall through to this admin login handler instead).
+app.use("/api/admin/auth", authRouter);
 
 // Admin endpoints
 app.use("/api/tenants", tenantsRouter);
