@@ -30,19 +30,15 @@ async function syncPosProductsStock(products: any[], tenantId: string | null | u
     const posCodes = linkedProducts.map((p) => p.posProductCode);
     let posItems: { code: string; uldegdel: number; onlinePrice?: number }[] = [];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
-
     const response = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-stock-sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({
         codes: posCodes,
         salbariinId: tenant.posBranchId,
         baiguullagiinId: tenant.posOrgId,
       }),
-    }).finally(() => clearTimeout(timeoutId));
+    });
 
     if (!response.ok) {
       throw new Error(`POS API stock sync failed with status ${response.status}`);
@@ -107,19 +103,15 @@ async function syncEmProductsStock(products: any[], tenantId: string | null | un
     const emCodes = linkedProducts.map((p) => p.emProductCode);
     let emItems: { code: string; uldegdel: number; onlinePrice?: number }[] = [];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
-
     const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-stock-sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({
         codes: emCodes,
         ...(emBranchId ? { salbariinId: emBranchId } : {}),
         ...(emOrgId ? { baiguullagiinId: emOrgId } : {}),
       }),
-    }).finally(() => clearTimeout(timeoutId));
+    });
 
     if (!response.ok) {
       throw new Error(`EM API stock sync failed with status ${response.status}`);
@@ -205,20 +197,6 @@ async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
 
 // ── Public endpoint for storefront ────────────────────────────────────────────
 
-const publicProductsCache = new Map<string, { data: any[]; timestamp: number }>();
-const CACHE_TTL_MS = 30 * 1000; // 30 seconds
-
-export function invalidatePublicProductsCache(tenantId?: string) {
-  if (tenantId) {
-    for (const key of publicProductsCache.keys()) {
-      if (key.startsWith(`${tenantId}:`)) {
-        publicProductsCache.delete(key);
-      }
-    }
-  } else {
-    publicProductsCache.clear();
-  }
-}
 
 productsRouter.get("/public", async (req, res, next) => {
   try {
@@ -228,55 +206,14 @@ productsRouter.get("/public", async (req, res, next) => {
       return;
     }
 
-    const page = Math.max(parseInt((req.query.page as string) || "1", 10), 1);
-    const limit = Math.min(Math.max(parseInt((req.query.limit as string) || "200", 10), 1), 1000);
-    const skip = (page - 1) * limit;
-
-    const categoryId = req.query.categoryId as string | undefined;
-    const categoryIdsStr = req.query.categoryIds as string | undefined;
-    const search = (req.query.search as string | undefined) || (req.query.q as string | undefined);
-    const brandId = req.query.brandId as string | undefined;
-
-    const cacheKey = `${tenantId}:${categoryId || ""}:${categoryIdsStr || ""}:${search || ""}:${brandId || ""}:${page}:${limit}`;
-    const cached = publicProductsCache.get(cacheKey);
-    const now = Date.now();
-
-    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
-      res.json({ data: cached.data, total: (cached as any).total ?? cached.data.length, page, totalPages: Math.ceil(((cached as any).total ?? cached.data.length) / limit) });
-      return;
-    }
-
     const { Model, useTenantFilter } = await resolveProductModel(tenantId);
-    const filter: Record<string, unknown> = { status: { $nin: ["inactive", "draft"] } };
-    if (useTenantFilter) filter.tenantId = tenantId;
-
-    if (categoryIdsStr) {
-      const ids = categoryIdsStr.split(",").map((s) => s.trim()).filter(Boolean);
-      if (ids.length > 0) filter.categoryId = { $in: ids };
-    } else if (categoryId) {
-      filter.categoryId = categoryId;
-    }
-
-    if (brandId) {
-      filter.brandId = brandId;
-    }
-
-    if (search && search.trim()) {
-      const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-      filter.$or = [{ name: regex }, { description: regex }, { posProductCode: regex }, { emProductCode: regex }];
-    }
-
-    const [total, list] = await Promise.all([
-      Model.countDocuments(filter),
-      Model.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    ]);
+    const statusFilter = { status: { $nin: ["inactive", "draft"] } };
+    const filter = useTenantFilter ? { tenantId, ...statusFilter } : statusFilter;
+    const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
     
     const syncedList = await syncPosProductsStock(list, tenantId);
     const syncedListWithEm = await syncEmProductsStock(syncedList, tenantId);
-    const serializedData = syncedListWithEm.map((t) => serializeLean(t as Record<string, unknown>));
-
-    publicProductsCache.set(cacheKey, { data: serializedData, total, timestamp: now } as any);
-    res.json({ data: serializedData, total, page, totalPages: Math.ceil(total / limit) });
+    res.json({ data: syncedListWithEm.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);
   }
