@@ -12,29 +12,29 @@ ebarimtRouter.get("/resolve", async (req, res) => {
       return;
     }
 
-    // 1. Try official public api.ebarimt.mn
-    try {
-      const url = `https://api.ebarimt.mn/api/info/check/getTinInfo?regNo=${encodeURIComponent(regNo)}`;
-      const { data } = await axios.get(url, { headers: { Accept: "application/json" }, timeout: 4000 });
-      if (data && (data.data || data.msg === "Амжилттай")) {
-        const infoName = typeof data.data === "object" ? (data.data.name || data.data.vatpayerName) : (data.data || "Байгууллага");
-        res.json({
-          found: true,
-          tin: String(data.data?.vatpayerNumber || data.data || regNo),
-          info: { name: String(infoName) },
-        });
-        return;
-      }
-    } catch (_) {}
-
-    // 2. Fallback to pos.zevtabs.mn helper
+    // 1. Try pos.zevtabs.mn (returns actual company name, e.g. "Зэв ТАБС")
     try {
       const posRes = await axios.get(`https://pos.zevtabs.mn/api/tatvaraasBaiguullagaAvya/${encodeURIComponent(regNo)}`, { timeout: 4000 });
       if (posRes.data && posRes.data.found) {
         res.json({
           found: true,
-          tin: posRes.data.tin || regNo,
+          tin: String(posRes.data.tin || regNo),
           info: { name: posRes.data.name || "Байгууллага" },
+        });
+        return;
+      }
+    } catch (_) {}
+
+    // 2. Fallback to official public api.ebarimt.mn
+    try {
+      const url = `https://api.ebarimt.mn/api/info/check/getTinInfo?regNo=${encodeURIComponent(regNo)}`;
+      const { data } = await axios.get(url, { headers: { Accept: "application/json" }, timeout: 4000 });
+      if (data && (data.data || data.msg === "Амжилттай")) {
+        const infoName = typeof data.data === "object" ? (data.data.name || data.data.vatpayerName) : "Байгууллага";
+        res.json({
+          found: true,
+          tin: String(data.data?.vatpayerNumber || data.data || regNo),
+          info: { name: String(infoName) },
         });
         return;
       }
