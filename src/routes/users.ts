@@ -528,6 +528,12 @@ usersRouter.post("/refresh", async (req, res, next) => {
   }
 });
 
+// ── POST /api/users/logout ───────────────────────────────────────────────────
+
+usersRouter.post("/logout", async (_req, res) => {
+  res.json({ success: true });
+});
+
 // ── GET /api/users/me ────────────────────────────────────────────────────────
 
 usersRouter.get("/me", async (req, res, next) => {

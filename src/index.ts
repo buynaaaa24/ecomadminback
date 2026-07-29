@@ -53,6 +53,7 @@ app.use("/api/config", configRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/qpay", qpayRouter);
 app.use("/api/users", usersRouter);
+app.use("/api/auth", usersRouter);
 
 app.post("/api/upload", upload.single("file"), (req, res) => {
   if (!req.file) {
