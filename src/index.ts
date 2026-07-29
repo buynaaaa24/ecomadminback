@@ -19,6 +19,7 @@ import { ordersRouter } from "./routes/orders.js";
 import { qpayRouter } from "./routes/qpay.js";
 import { usersRouter } from "./routes/users.js";
 import { brandsRouter } from "./routes/brands.js";
+import { ebarimtRouter } from "./routes/ebarimt.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 8000;
@@ -52,6 +53,7 @@ app.get("/", (_req, res) => {
 app.use("/api/config", configRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/qpay", qpayRouter);
+app.use("/api/ebarimt", ebarimtRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/auth", usersRouter);
 
