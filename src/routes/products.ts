@@ -30,15 +30,19 @@ async function syncPosProductsStock(products: any[], tenantId: string | null | u
     const posCodes = linkedProducts.map((p) => p.posProductCode);
     let posItems: { code: string; uldegdel: number; onlinePrice?: number }[] = [];
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+
     const response = await fetch(`${posUri.replace(/\/$/, "")}/api/ecom/pos-stock-sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         codes: posCodes,
         salbariinId: tenant.posBranchId,
         baiguullagiinId: tenant.posOrgId,
       }),
-    });
+    }).finally(() => clearTimeout(timeoutId));
 
     if (!response.ok) {
       throw new Error(`POS API stock sync failed with status ${response.status}`);
@@ -103,15 +107,19 @@ async function syncEmProductsStock(products: any[], tenantId: string | null | un
     const emCodes = linkedProducts.map((p) => p.emProductCode);
     let emItems: { code: string; uldegdel: number; onlinePrice?: number }[] = [];
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+
     const response = await fetch(`${emUri.replace(/\/$/, "")}/api/ecom/em-stock-sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         codes: emCodes,
         ...(emBranchId ? { salbariinId: emBranchId } : {}),
         ...(emOrgId ? { baiguullagiinId: emOrgId } : {}),
       }),
-    });
+    }).finally(() => clearTimeout(timeoutId));
 
     if (!response.ok) {
       throw new Error(`EM API stock sync failed with status ${response.status}`);
@@ -197,6 +205,20 @@ async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
 
 // ── Public endpoint for storefront ────────────────────────────────────────────
 
+const publicProductsCache = new Map<string, { data: any[]; timestamp: number }>();
+const CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+export function invalidatePublicProductsCache(tenantId?: string) {
+  if (tenantId) {
+    for (const key of publicProductsCache.keys()) {
+      if (key.startsWith(`${tenantId}:`)) {
+        publicProductsCache.delete(key);
+      }
+    }
+  } else {
+    publicProductsCache.clear();
+  }
+}
 
 productsRouter.get("/public", async (req, res, next) => {
   try {
@@ -206,14 +228,27 @@ productsRouter.get("/public", async (req, res, next) => {
       return;
     }
 
+    const limit = Math.min(Math.max(parseInt((req.query.limit as string) || "500", 10), 1), 1000);
+    const cacheKey = `${tenantId}:${limit}`;
+    const cached = publicProductsCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      res.json({ data: cached.data });
+      return;
+    }
+
     const { Model, useTenantFilter } = await resolveProductModel(tenantId);
     const statusFilter = { status: { $nin: ["inactive", "draft"] } };
     const filter = useTenantFilter ? { tenantId, ...statusFilter } : statusFilter;
-    const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
+    const list = await Model.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
     
     const syncedList = await syncPosProductsStock(list, tenantId);
     const syncedListWithEm = await syncEmProductsStock(syncedList, tenantId);
-    res.json({ data: syncedListWithEm.map((t) => serializeLean(t as Record<string, unknown>)) });
+    const serializedData = syncedListWithEm.map((t) => serializeLean(t as Record<string, unknown>));
+
+    publicProductsCache.set(cacheKey, { data: serializedData, timestamp: now });
+    res.json({ data: serializedData });
   } catch (e) {
     next(e);
   }
