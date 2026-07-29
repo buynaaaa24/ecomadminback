@@ -146,19 +146,35 @@ async function resolveTenant(req: any) {
 }
 
 async function resolveTenantByHost(req: any) {
-  const tenantId = req.query.tenantId as string | undefined;
-  if (tenantId) return Tenant.findById(tenantId);
-  const slug = req.query.tenant as string | undefined;
-  if (slug) return Tenant.findOne({ slug: slug.toLowerCase().trim(), status: "active" });
-  const host = ((req.headers["x-tenant-host"] ?? req.headers.host ?? "") as string).split(":")[0].toLowerCase();
-  const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(host);
-  if (!isIp && host && host !== "localhost") {
-    return (
-      await Tenant.findOne({ domain: host, status: "active" }) ??
-      await Tenant.findOne({ slug: host.split(".")[0], status: "active" })
-    );
+  const tenantId = (req.body?.tenantId ?? req.query?.tenantId ?? req.headers["x-tenant-id"]) as string | undefined;
+  if (tenantId && mongoose.Types.ObjectId.isValid(tenantId)) {
+    const found = await Tenant.findById(tenantId);
+    if (found) return found;
   }
-  return Tenant.findOne({ status: "active" });
+  const slugHeader = (req.headers["x-tenant-slug"] ?? req.query?.tenant) as string | undefined;
+  if (slugHeader) {
+    const found = await Tenant.findOne({ slug: slugHeader.toLowerCase().trim() });
+    if (found) return found;
+  }
+
+  const rawHost = (req.headers["x-tenant-host"] ?? req.headers["x-forwarded-host"] ?? req.headers.host ?? "") as string;
+  const host = rawHost.split(":")[0].toLowerCase();
+  const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(host);
+
+  if (!isIp && host && host !== "localhost") {
+    const byDomain = await Tenant.findOne({ domain: host });
+    if (byDomain) return byDomain;
+
+    const parts = host.split(".");
+    for (const part of parts) {
+      if (part && part !== "www" && part !== "ecom" && part !== "api") {
+        const bySlug = await Tenant.findOne({ slug: part });
+        if (bySlug) return bySlug;
+      }
+    }
+  }
+
+  return (await Tenant.findOne({ status: "active" })) ?? (await Tenant.findOne());
 }
 
 // ── POST /api/qpay/register-merchant ─────────────────────────────────────────
