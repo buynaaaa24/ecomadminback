@@ -60,10 +60,40 @@ function verifyAccess(token: string): { sub: string } | null {
   }
 }
 
-/** Extract Bearer token from Authorization header */
-function extractBearer(authHeader?: string): string | null {
+/** Extract Bearer token from Authorization header or HTTP cookie */
+function extractBearer(req: any): string | null {
+  const authHeader = typeof req === "string" ? req : req?.headers?.authorization;
   const m = authHeader?.match(/^Bearer\s+(.+)$/i);
-  return m?.[1] ?? null;
+  if (m?.[1]) return m[1];
+  const cookieHeader = typeof req === "object" ? req?.headers?.cookie : undefined;
+  if (cookieHeader) {
+    const match = cookieHeader.match(/(?:^|;\s*)access_token=([^;]+)/);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function setAuthCookies(res: any, accessToken: string, refreshToken: string) {
+  const isProd = process.env.NODE_ENV === "production";
+  res.cookie("access_token", accessToken, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    maxAge: 15 * 60 * 1000,
+    path: "/",
+  });
+  res.cookie("refresh_token", refreshToken, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+}
+
+function clearAuthCookies(res: any) {
+  res.clearCookie("access_token", { path: "/" });
+  res.clearCookie("refresh_token", { path: "/" });
 }
 
 /** Resolve the tenantId from the request (X-Tenant-Id header or query param). */
@@ -176,6 +206,8 @@ usersRouter.post("/otp/verify", async (req, res, next) => {
     const tokens = (user.refreshTokens ?? []).slice(-4);
     tokens.push(newRefresh);
     await CustomerUser.findByIdAndUpdate(user._id, { refreshTokens: tokens, lastLogin: new Date() });
+
+    setAuthCookies(res, accessToken, newRefresh);
 
     res.json({
       accessToken,
@@ -349,6 +381,8 @@ usersRouter.post("/oauth", async (req, res, next) => {
     const newRefresh = signRefresh(String(user._id));
     await CustomerUser.findByIdAndUpdate(user._id, { $push: { refreshTokens: newRefresh } });
 
+    setAuthCookies(res, accessToken, newRefresh);
+
     res.json({
       accessToken,
       refreshToken: newRefresh,
@@ -413,6 +447,8 @@ usersRouter.post("/login", async (req, res, next) => {
       refreshTokens: tokens,
       lastLogin: new Date(),
     });
+
+    setAuthCookies(res, accessToken, newRefresh);
 
     res.json({
       accessToken,
@@ -492,7 +528,12 @@ usersRouter.post("/forgot-password/reset", async (req, res, next) => {
 
 usersRouter.post("/refresh", async (req, res, next) => {
   try {
-    const { refreshToken } = req.body as { refreshToken?: string };
+    let refreshToken = (req.body && typeof req.body === "object") ? req.body.refreshToken : undefined;
+    if (!refreshToken && req.headers.cookie) {
+      const match = req.headers.cookie.match(/(?:^|;\s*)refresh_token=([^;]+)/);
+      if (match?.[1]) refreshToken = match[1];
+    }
+
     if (!refreshToken) {
       res.status(401).json({ error: "refreshToken шаардлагатай" });
       return;
@@ -522,6 +563,8 @@ usersRouter.post("/refresh", async (req, res, next) => {
     tokens.push(newRefresh);
     await CustomerUser.findByIdAndUpdate(user._id, { refreshTokens: tokens });
 
+    setAuthCookies(res, accessToken, newRefresh);
+
     res.json({ accessToken, refreshToken: newRefresh });
   } catch (e) {
     next(e);
@@ -531,6 +574,7 @@ usersRouter.post("/refresh", async (req, res, next) => {
 // ── POST /api/users/logout ───────────────────────────────────────────────────
 
 usersRouter.post("/logout", async (_req, res) => {
+  clearAuthCookies(res);
   res.json({ success: true });
 });
 
