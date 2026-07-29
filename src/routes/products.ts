@@ -228,27 +228,55 @@ productsRouter.get("/public", async (req, res, next) => {
       return;
     }
 
-    const limit = Math.min(Math.max(parseInt((req.query.limit as string) || "500", 10), 1), 1000);
-    const cacheKey = `${tenantId}:${limit}`;
+    const page = Math.max(parseInt((req.query.page as string) || "1", 10), 1);
+    const limit = Math.min(Math.max(parseInt((req.query.limit as string) || "200", 10), 1), 1000);
+    const skip = (page - 1) * limit;
+
+    const categoryId = req.query.categoryId as string | undefined;
+    const categoryIdsStr = req.query.categoryIds as string | undefined;
+    const search = (req.query.search as string | undefined) || (req.query.q as string | undefined);
+    const brandId = req.query.brandId as string | undefined;
+
+    const cacheKey = `${tenantId}:${categoryId || ""}:${categoryIdsStr || ""}:${search || ""}:${brandId || ""}:${page}:${limit}`;
     const cached = publicProductsCache.get(cacheKey);
     const now = Date.now();
 
     if (cached && now - cached.timestamp < CACHE_TTL_MS) {
-      res.json({ data: cached.data });
+      res.json({ data: cached.data, total: (cached as any).total ?? cached.data.length, page, totalPages: Math.ceil(((cached as any).total ?? cached.data.length) / limit) });
       return;
     }
 
     const { Model, useTenantFilter } = await resolveProductModel(tenantId);
-    const statusFilter = { status: { $nin: ["inactive", "draft"] } };
-    const filter = useTenantFilter ? { tenantId, ...statusFilter } : statusFilter;
-    const list = await Model.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+    const filter: Record<string, unknown> = { status: { $nin: ["inactive", "draft"] } };
+    if (useTenantFilter) filter.tenantId = tenantId;
+
+    if (categoryIdsStr) {
+      const ids = categoryIdsStr.split(",").map((s) => s.trim()).filter(Boolean);
+      if (ids.length > 0) filter.categoryId = { $in: ids };
+    } else if (categoryId) {
+      filter.categoryId = categoryId;
+    }
+
+    if (brandId) {
+      filter.brandId = brandId;
+    }
+
+    if (search && search.trim()) {
+      const regex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [{ name: regex }, { description: regex }, { posProductCode: regex }, { emProductCode: regex }];
+    }
+
+    const [total, list] = await Promise.all([
+      Model.countDocuments(filter),
+      Model.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    ]);
     
     const syncedList = await syncPosProductsStock(list, tenantId);
     const syncedListWithEm = await syncEmProductsStock(syncedList, tenantId);
     const serializedData = syncedListWithEm.map((t) => serializeLean(t as Record<string, unknown>));
 
-    publicProductsCache.set(cacheKey, { data: serializedData, timestamp: now });
-    res.json({ data: serializedData });
+    publicProductsCache.set(cacheKey, { data: serializedData, total, timestamp: now } as any);
+    res.json({ data: serializedData, total, page, totalPages: Math.ceil(total / limit) });
   } catch (e) {
     next(e);
   }
