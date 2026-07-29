@@ -16,7 +16,7 @@ export const ordersRouter = Router();
 /**
  * Resolve the Order model to use for a given tenantId.
  */
-export async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
+async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
   Model: typeof Order | ReturnType<typeof getOrderModel>;
   useTenantFilter: boolean;
 }> {
@@ -336,8 +336,6 @@ ordersRouter.post("/public", async (req, res, next) => {
       paymentStatus,
       orderStatus: "pending",
       orderNumber,
-      ebarimtType: ebarimtType || "B2C_RECEIPT",
-      customerTin: customerTin || "",
     };
 
     if (useTenantFilter) {

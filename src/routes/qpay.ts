@@ -373,55 +373,16 @@ qpayRouter.post("/invoice", async (req, res, next) => {
 
 // ── GET /api/qpay/callback/:tenantId/:zakhialgiinDugaar ───────────────────────
 
-async function processQpayOrderPayment(zakhialgiinDugaar: string) {
-  const inv = await QpayInvoice.findOneAndUpdate({ zakhialgiinDugaar }, { paid: true }, { new: true });
-  await QuickQpayObject.findOneAndUpdate({ zakhialgiinDugaar }, { tulsunEsekh: true });
-
-  if (!inv || !inv.tenantId) return;
-
-  try {
-    const tenant = await Tenant.findById(inv.tenantId);
-    if (!tenant) return;
-
-    const { resolveOrderModel } = await import("./orders.js");
-    const { Model: OrderModel } = await resolveOrderModel(inv.tenantId);
-    const order = await OrderModel.findOne({ orderNumber: zakhialgiinDugaar });
-
-    if (order) {
-      order.paymentStatus = "paid";
-      await order.save();
-
-      // Check if Ebarimt needs to be issued
-      const hasEbarimt = order.items.some((i: any) => i.ebarimtBillId);
-      const ebarimtType = (order as any).ebarimtType || "B2C_RECEIPT";
-      const customerTin = (order as any).customerTin || tenant.ebarimtTin || "";
-
-      if (!hasEbarimt && tenant.ebarimtEnabled && (tenant.ebarimtAutoSend || ebarimtType)) {
-        const { issueEbarimt } = await import("../util/ebarimt.js");
-        const ebarimtDoc = await issueEbarimt(order, tenant, ebarimtType, customerTin);
-        if (ebarimtDoc) {
-          for (const item of order.items) {
-            item.ebarimtBillId = ebarimtDoc.billId || "";
-            item.ebarimtLottery = ebarimtDoc.lottery || "";
-            item.ebarimtQrData = ebarimtDoc.qrData || "";
-          }
-          await order.save();
-        }
-      }
-    }
-  } catch (err: any) {
-    console.error("[QPay Post-Payment Process Error]:", err.message || err);
-  }
-}
-
-// ── GET /api/qpay/callback/:tenantId/:zakhialgiinDugaar ───────────────────────
-
 qpayRouter.get("/callback/:tenantId/:zakhialgiinDugaar", async (req, res, next) => {
   try {
     const { zakhialgiinDugaar } = req.params;
     logToFile("QPay callback received", { zakhialgiinDugaar });
 
-    await processQpayOrderPayment(zakhialgiinDugaar);
+    await QpayInvoice.findOneAndUpdate({ zakhialgiinDugaar }, { paid: true });
+    await QuickQpayObject.findOneAndUpdate(
+      { zakhialgiinDugaar, tulsunEsekh: false },
+      { tulsunEsekh: true },
+    );
 
     (req as any).app.get("socketio")?.emit("qpay" + zakhialgiinDugaar);
     res.sendStatus(200);
@@ -435,9 +396,6 @@ qpayRouter.get("/callback/:tenantId/:zakhialgiinDugaar", async (req, res, next) 
 qpayRouter.post("/check", async (req, res, next) => {
   try {
     const { zakhialgiinDugaar } = req.body;
-    if (zakhialgiinDugaar) {
-      await processQpayOrderPayment(zakhialgiinDugaar);
-    }
     const obj = await QpayInvoice.findOne({ zakhialgiinDugaar }).lean();
     res.json({ data: obj ?? null });
   } catch (e) {
