@@ -16,7 +16,7 @@ export const ordersRouter = Router();
 /**
  * Resolve the Order model to use for a given tenantId.
  */
-async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
+export async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
   Model: typeof Order | ReturnType<typeof getOrderModel>;
   useTenantFilter: boolean;
 }> {
