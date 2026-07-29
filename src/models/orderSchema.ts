@@ -32,6 +32,8 @@ export const orderSchema = new Schema(
     paymentStatus: { type: String, default: "pending" }, // pending | paid | refunded
     orderStatus: { type: String, default: "pending" }, // pending | processing | delivered | cancelled
     orderNumber: { type: String, required: true, index: true },
+    ebarimtType: { type: String, default: "B2C_RECEIPT" },
+    customerTin: { type: String, default: "" },
   },
   { timestamps: true },
 );
