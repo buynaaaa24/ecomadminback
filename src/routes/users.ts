@@ -117,6 +117,42 @@ async function resolveOrderModel(tenantId: string | null) {
   return { Model: Order, useTenantFilter: true };
 }
 
+/** Get all Order models across all tenant databases + central DB */
+async function getAllOrderModels(primaryTenantId?: string | null): Promise<Array<typeof Order | ReturnType<typeof getOrderModel>>> {
+  const modelsMap = new Map<string, any>();
+  modelsMap.set("central", Order);
+
+  if (primaryTenantId) {
+    try {
+      const primaryTenant = await Tenant.findById(primaryTenantId).lean<{ databaseUri?: string }>();
+      if (primaryTenant?.databaseUri && (primaryTenant.databaseUri.startsWith("mongodb://") || primaryTenant.databaseUri.startsWith("mongodb+srv://"))) {
+        const conn = await getTenantConnection(primaryTenant.databaseUri);
+        modelsMap.set(primaryTenant.databaseUri, getOrderModel(conn));
+      }
+    } catch (e) {
+      console.error(`[OrderModels] Failed to get primary tenant model:`, e);
+    }
+  }
+
+  try {
+    const tenants = await Tenant.find({ databaseUri: { $exists: true, $ne: "" } }).lean<Array<{ databaseUri?: string }>>();
+    for (const t of tenants) {
+      if (t.databaseUri && (t.databaseUri.startsWith("mongodb://") || t.databaseUri.startsWith("mongodb+srv://")) && !modelsMap.has(t.databaseUri)) {
+        try {
+          const conn = await getTenantConnection(t.databaseUri);
+          modelsMap.set(t.databaseUri, getOrderModel(conn));
+        } catch (err) {
+          console.error(`[OrderModels] Failed to connect tenant DB ${t.databaseUri}:`, err);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[OrderModels] Error querying Tenants list:", e);
+  }
+
+  return Array.from(modelsMap.values());
+}
+
 // ── POST /api/users/otp/send ─────────────────────────────────────────────────
 
 usersRouter.post("/otp/send", async (req, res, next) => {
@@ -865,20 +901,26 @@ usersRouter.get("/orders", async (req, res, next) => {
       return;
     }
 
-    const tenantOrders = await OrderModel.find({ $or: orClauses }).sort({ createdAt: -1, _id: -1 }).limit(100).lean();
-    let allOrders = tenantOrders;
-    if (OrderModel !== Order) {
-      const centralOrders = await Order.find({ $or: orClauses }).sort({ createdAt: -1, _id: -1 }).limit(100).lean();
-      const map = new Map<string, any>();
-      for (const o of [...tenantOrders, ...centralOrders]) {
-        map.set(String(o._id), o);
+    const models = await getAllOrderModels(tenantId);
+    const results = await Promise.all(
+      models.map((M) => M.find({ $or: orClauses }).sort({ createdAt: -1, _id: -1 }).limit(100).lean())
+    );
+
+    const map = new Map<string, any>();
+    for (const resList of results) {
+      for (const o of resList) {
+        const key = String(o.orderNumber || o._id);
+        if (!map.has(key)) {
+          map.set(key, o);
+        }
       }
-      allOrders = Array.from(map.values()).sort((a, b) => {
-        const tA = new Date(a.createdAt || 0).getTime();
-        const tB = new Date(b.createdAt || 0).getTime();
-        return tB - tA;
-      });
     }
+
+    const allOrders = Array.from(map.values()).sort((a, b) => {
+      const tA = new Date(a.createdAt || 0).getTime();
+      const tB = new Date(b.createdAt || 0).getTime();
+      return tB - tA;
+    });
 
     res.json({ data: allOrders.map((o) => serializeLean(o as Record<string, unknown>)) });
   } catch (e) {

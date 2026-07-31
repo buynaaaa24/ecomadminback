@@ -32,6 +32,42 @@ async function resolveOrderModel(tenantId: string | null | undefined): Promise<{
   return { Model: Order, useTenantFilter: true };
 }
 
+/** Get all Order models across all registered tenant databases + central DB */
+async function getAllOrderModels(primaryTenantId?: string | null): Promise<Array<typeof Order | ReturnType<typeof getOrderModel>>> {
+  const modelsMap = new Map<string, any>();
+  modelsMap.set("central", Order);
+
+  if (primaryTenantId) {
+    try {
+      const primaryTenant = await Tenant.findById(primaryTenantId).lean<{ databaseUri?: string }>();
+      if (primaryTenant?.databaseUri && (primaryTenant.databaseUri.startsWith("mongodb://") || primaryTenant.databaseUri.startsWith("mongodb+srv://"))) {
+        const conn = await getTenantConnection(primaryTenant.databaseUri);
+        modelsMap.set(primaryTenant.databaseUri, getOrderModel(conn));
+      }
+    } catch (e) {
+      console.error(`[OrderModels] Failed to get primary tenant model:`, e);
+    }
+  }
+
+  try {
+    const tenants = await Tenant.find({ databaseUri: { $exists: true, $ne: "" } }).lean<Array<{ databaseUri?: string }>>();
+    for (const t of tenants) {
+      if (t.databaseUri && (t.databaseUri.startsWith("mongodb://") || t.databaseUri.startsWith("mongodb+srv://")) && !modelsMap.has(t.databaseUri)) {
+        try {
+          const conn = await getTenantConnection(t.databaseUri);
+          modelsMap.set(t.databaseUri, getOrderModel(conn));
+        } catch (err) {
+          console.error(`[OrderModels] Failed to connect tenant DB ${t.databaseUri}:`, err);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[OrderModels] Error querying Tenants list:", e);
+  }
+
+  return Array.from(modelsMap.values());
+}
+
 /**
  * Resolve the Product model to use for a given tenantId.
  */
@@ -384,12 +420,17 @@ ordersRouter.post("/public", async (req, res, next) => {
 ordersRouter.get("/track/:orderNumber", async (req, res, next) => {
   try {
     const tenantId = (req.query.tenantId as string | undefined) ?? undefined;
-    const { Model, useTenantFilter } = await resolveOrderModel(tenantId);
-    const filter: Record<string, unknown> = { orderNumber: req.params.orderNumber };
-    if (useTenantFilter && tenantId) {
-      filter.tenantId = new mongoose.Types.ObjectId(tenantId);
+    const models = await getAllOrderModels(tenantId);
+    let order: Record<string, any> | null = null;
+
+    for (const M of models) {
+      const doc = await M.findOne({ orderNumber: req.params.orderNumber }).lean<Record<string, any>>();
+      if (doc) {
+        order = doc;
+        break;
+      }
     }
-    const order = await Model.findOne(filter).lean<Record<string, any>>();
+
     if (!order) {
       res.status(404).json({ error: "Захиалга олдсонгүй" });
       return;
@@ -435,14 +476,31 @@ ordersRouter.get("/", async (req, res, next) => {
       ? (req.query.tenantId as string | undefined)
       : a.tenantId ?? undefined;
 
-    const { Model, useTenantFilter } = await resolveOrderModel(targetTenantId);
-    const filter: Record<string, unknown> = {};
-    if (useTenantFilter && targetTenantId) {
-      filter.tenantId = new mongoose.Types.ObjectId(targetTenantId);
+    if (targetTenantId) {
+      const { Model } = await resolveOrderModel(targetTenantId);
+      const list = await Model.find({}).sort({ createdAt: -1, _id: -1 }).lean();
+      res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
+      return;
     }
 
-    const list = await Model.find(filter).sort({ createdAt: -1 }).lean();
-    res.json({ data: list.map((t) => serializeLean(t as Record<string, unknown>)) });
+    const models = await getAllOrderModels();
+    const results = await Promise.all(models.map((M) => M.find({}).sort({ createdAt: -1, _id: -1 }).limit(200).lean()));
+
+    const map = new Map<string, any>();
+    for (const resList of results) {
+      for (const o of resList) {
+        const key = String(o.orderNumber || o._id);
+        if (!map.has(key)) map.set(key, o);
+      }
+    }
+
+    const allOrders = Array.from(map.values()).sort((a, b) => {
+      const tA = new Date(a.createdAt || 0).getTime();
+      const tB = new Date(b.createdAt || 0).getTime();
+      return tB - tA;
+    });
+
+    res.json({ data: allOrders.map((t) => serializeLean(t as Record<string, unknown>)) });
   } catch (e) {
     next(e);
   }
@@ -455,11 +513,20 @@ ordersRouter.patch("/:id", async (req, res, next) => {
     const tenantId = a.role !== "superadmin" ? a.tenantId : undefined;
     const { orderStatus, paymentStatus } = req.body;
 
-    const { Model: OrderModel, useTenantFilter } = await resolveOrderModel(tenantId);
-    const filter: Record<string, unknown> = { _id: req.params.id };
-    if (useTenantFilter && tenantId) filter.tenantId = tenantId;
+    const { Model: OrderModel } = await resolveOrderModel(tenantId);
+    let existingOrder = await OrderModel.findOne({ _id: req.params.id });
 
-    const existingOrder = await OrderModel.findOne(filter);
+    if (!existingOrder) {
+      const models = await getAllOrderModels(tenantId);
+      for (const M of models) {
+        const found = await M.findOne({ _id: req.params.id });
+        if (found) {
+          existingOrder = found;
+          break;
+        }
+      }
+    }
+
     if (!existingOrder) {
       res.status(404).json({ error: "Order not found" });
       return;
