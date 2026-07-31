@@ -775,6 +775,7 @@ usersRouter.post("/logout", async (_req, res) => {
 
 usersRouter.get("/me", async (req, res, next) => {
   try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
     const token = extractBearer(req.headers.authorization);
     if (!token) {
       res.status(401).json({ error: "Нэвтрэх шаардлагатай" });
