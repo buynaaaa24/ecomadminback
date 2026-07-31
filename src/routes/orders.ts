@@ -352,6 +352,7 @@ ordersRouter.post("/public", async (req, res, next) => {
         customerInfo.phone,
         `Tany zakhialga amjilttai batalgaajlaa. Endees shalgana uu: ${link}`,
       );
+      console.log(`[Order SMS] Success! Sent to ${customerInfo.phone}`);
     } catch (smsErr: any) {
       console.error("[Order SMS] send failed:", smsErr?.message || smsErr);
     }

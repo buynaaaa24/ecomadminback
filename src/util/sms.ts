@@ -24,6 +24,7 @@ export async function sendSms(to: string, text: string): Promise<void> {
     if (result === "FAILED" || result === "ERROR") {
       throw new Error(raw?.Message || raw?.message || "CallPro rejected");
     }
+    console.log(`[CallPro SMS] Success! Sent to ${to}`);
   } catch (err: any) {
     if (err.response) {
       console.error("[CallPro API Error Response]:", JSON.stringify(err.response.data));
