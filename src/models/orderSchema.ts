@@ -8,6 +8,8 @@ export const orderSchema = new Schema(
   {
     // Populated when using the shared (central) database
     tenantId: { type: Schema.Types.ObjectId, ref: "Tenant", index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "CustomerUser", index: true },
+    userIdString: { type: String, index: true },
     customerInfo: {
       lastName: { type: String, default: "" },
       firstName: { type: String, required: true },

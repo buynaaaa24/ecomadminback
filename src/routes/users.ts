@@ -51,7 +51,7 @@ function signRefresh(userId: string): string {
   return jwt.sign({ sub: userId, type: "customer_refresh" }, refreshSecret(), { expiresIn: "7d" });
 }
 
-function verifyAccess(token: string): { sub: string } | null {
+export function verifyAccess(token: string): { sub: string } | null {
   try {
     const p = jwt.verify(token, accessSecret()) as jwt.JwtPayload;
     if (p.type !== "customer") return null;
@@ -62,7 +62,7 @@ function verifyAccess(token: string): { sub: string } | null {
 }
 
 /** Extract Bearer token from Authorization header or HTTP cookie */
-function extractBearer(req: any): string | null {
+export function extractBearer(req: any): string | null {
   const authHeader = typeof req === "string" ? req : req?.headers?.authorization;
   const m = authHeader?.match(/^Bearer\s+(.+)$/i);
   if (m?.[1]) return m[1];
@@ -828,23 +828,59 @@ usersRouter.get("/orders", async (req, res, next) => {
     }
 
     const tenantId = user.tenantId ? String(user.tenantId) : null;
-    const { Model: OrderModel, useTenantFilter } = await resolveOrderModel(tenantId);
+    const { Model: OrderModel } = await resolveOrderModel(tenantId);
 
-    const filter: Record<string, unknown> = {
-      $or: [
-        { "customerInfo.email": user.email },
-        ...(user.phone ? [{ "customerInfo.phone": user.phone }] : []),
-      ],
-    };
-    if (useTenantFilter && tenantId) {
-      const parsedId = parseTenantId(tenantId);
-      if (parsedId) {
-        filter.tenantId = parsedId;
-      }
+    const rawPhone = (user.phone || "").trim();
+    const cleanPhone = rawPhone.replace(/\D/g, "");
+
+    const phoneFilters: Record<string, unknown>[] = [];
+    if (rawPhone) {
+      phoneFilters.push({ "customerInfo.phone": rawPhone });
+    }
+    if (cleanPhone && cleanPhone !== rawPhone) {
+      phoneFilters.push({ "customerInfo.phone": cleanPhone });
+    }
+    if (cleanPhone.length >= 7) {
+      phoneFilters.push({ "customerInfo.phone": new RegExp(cleanPhone, "i") });
     }
 
-    const orders = await OrderModel.find(filter).sort({ createdAt: -1 }).limit(50).lean();
-    res.json({ data: orders.map((o) => serializeLean(o as Record<string, unknown>)) });
+    const emailFilters: Record<string, unknown>[] = [];
+    if (user.email && !user.email.includes("@phone.local")) {
+      emailFilters.push({ "customerInfo.email": user.email });
+      emailFilters.push({ "customerInfo.email": new RegExp(`^${user.email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") });
+    }
+
+    const userIdStr = String(user._id);
+    const userIdFilters: Record<string, unknown>[] = [
+      { userIdString: userIdStr },
+      { userId: user._id },
+    ];
+    if (mongoose.Types.ObjectId.isValid(userIdStr)) {
+      userIdFilters.push({ userId: new mongoose.Types.ObjectId(userIdStr) });
+    }
+
+    const orClauses = [...userIdFilters, ...emailFilters, ...phoneFilters];
+    if (orClauses.length === 0) {
+      res.json({ data: [] });
+      return;
+    }
+
+    const tenantOrders = await OrderModel.find({ $or: orClauses }).sort({ createdAt: -1, _id: -1 }).limit(100).lean();
+    let allOrders = tenantOrders;
+    if (OrderModel !== Order) {
+      const centralOrders = await Order.find({ $or: orClauses }).sort({ createdAt: -1, _id: -1 }).limit(100).lean();
+      const map = new Map<string, any>();
+      for (const o of [...tenantOrders, ...centralOrders]) {
+        map.set(String(o._id), o);
+      }
+      allOrders = Array.from(map.values()).sort((a, b) => {
+        const tA = new Date(a.createdAt || 0).getTime();
+        const tB = new Date(b.createdAt || 0).getTime();
+        return tB - tA;
+      });
+    }
+
+    res.json({ data: allOrders.map((o) => serializeLean(o as Record<string, unknown>)) });
   } catch (e) {
     next(e);
   }

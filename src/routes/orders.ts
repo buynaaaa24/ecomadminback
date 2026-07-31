@@ -10,6 +10,7 @@ import { requireAdminAuth } from "../middleware/adminAuth.js";
 import { serializeDocument, serializeLean } from "../util/serialize.js";
 import { issueEbarimt } from "../util/ebarimt.js";
 import { sendSms } from "../util/sms.js";
+import { extractBearer, verifyAccess } from "./users.js";
 
 export const ordersRouter = Router();
 
@@ -326,6 +327,15 @@ ordersRouter.post("/public", async (req, res, next) => {
 
     // 4. Create and save the order document
     const { Model: OrderModel, useTenantFilter } = await resolveOrderModel(tenantId);
+
+    let authUserId: string | null = null;
+    const token = extractBearer(req);
+    if (token) {
+      const payload = verifyAccess(token);
+      if (payload?.sub) {
+        authUserId = String(payload.sub);
+      }
+    }
     
     const orderBody: Record<string, any> = {
       customerInfo,
@@ -337,6 +347,13 @@ ordersRouter.post("/public", async (req, res, next) => {
       orderStatus: "pending",
       orderNumber,
     };
+
+    if (authUserId) {
+      if (mongoose.Types.ObjectId.isValid(authUserId)) {
+        orderBody.userId = new mongoose.Types.ObjectId(authUserId);
+      }
+      orderBody.userIdString = authUserId;
+    }
 
     if (useTenantFilter) {
       orderBody.tenantId = new mongoose.Types.ObjectId(tenantId);
