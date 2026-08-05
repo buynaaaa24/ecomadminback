@@ -320,12 +320,30 @@ qpayRouter.post("/invoice", async (req, res, next) => {
 
     const token = await getQpayToken(shimtgel);
 
+    let customerLogo = t.logo || t.favicon || "";
+    if (customerLogo && !customerLogo.startsWith("http://") && !customerLogo.startsWith("https://")) {
+      const rawHost = (req.headers["x-tenant-host"] ?? req.headers["x-forwarded-host"] ?? req.headers.host ?? "ecom.zevtabs.mn") as string;
+      const host = rawHost.split(":")[0];
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const cleanPath = customerLogo.startsWith("/") ? customerLogo : `/${customerLogo}`;
+      customerLogo = `${protocol}://${host}${cleanPath}`;
+    }
+
+    const cleanBankAccounts = (bank || []).map((b: any) => ({
+      account_bank_code: b.account_bank_code,
+      account_number: b.account_number,
+      account_name: b.account_name,
+      is_default: b.is_default ?? true,
+    }));
+
     const invoicePayload = {
+      invoice_code: "ZEV_TABS_INVOICE",
       merchant_id: merchantId,
+      sender_invoice_no: zakhialgiinDugaar,
       amount,
       currency: "MNT",
-      customer_name: khariltsagch.name || khariltsagch.first_name || "",
-      customer_logo: "",
+      customer_name: khariltsagch.name || khariltsagch.first_name || t.name || "",
+      customer_logo: customerLogo,
       allow_partial: false,
       minimum_amount: null,
       allow_exceed: false,
@@ -333,7 +351,7 @@ qpayRouter.post("/invoice", async (req, res, next) => {
       callback_url,
       description: tailbar ?? `Төлбөр ${zakhialgiinDugaar}`,
       mcc_code: khariltsagch.mcc_code || "5311",
-      bank_accounts: bank,
+      bank_accounts: cleanBankAccounts,
     };
 
 
@@ -342,6 +360,17 @@ qpayRouter.post("/invoice", async (req, res, next) => {
       JSON.stringify(invoicePayload),
       { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     );
+
+    logToFile("QPay invoice created successfully", {
+      tenantId: String(tenant._id),
+      tenantName: t.name,
+      zakhialgiinDugaar,
+      amount,
+      invoiceId: data.id,
+      legacyId: data.legacy_id,
+      merchantId,
+      callback_url,
+    });
 
 
     // Save to QuickQpayObject (compatible with udirdlagaBack)
