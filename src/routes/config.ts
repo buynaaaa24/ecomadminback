@@ -269,6 +269,7 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
     const {
       storeName,
       logo,
+      favicon,
       primaryColor,
       description,
       locations,
@@ -327,6 +328,7 @@ configRouter.patch("/", requireAdminAuth, async (req, res, next) => {
 
     if (storeName !== undefined) tenant.name = storeName;
     if (logo !== undefined) tenant.logo = logo;
+    if (favicon !== undefined) (tenant as any).favicon = favicon;
     if (primaryColor !== undefined) tenant.primaryColor = primaryColor;
     if (description !== undefined) tenant.description = description;
     if (locations !== undefined) tenant.locations = locations;
