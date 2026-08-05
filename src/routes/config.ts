@@ -71,6 +71,7 @@ configRouter.get("/", async (req, res, next) => {
       branding: {
         name: t.name,
         logo: t.logo,
+        favicon: t.favicon || "",
         primaryColor: t.primaryColor,
         secondaryColor: t.secondaryColor,
         accentColor: t.accentColor,

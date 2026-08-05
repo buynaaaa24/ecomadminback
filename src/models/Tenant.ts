@@ -23,6 +23,7 @@ const TenantSchema = new Schema(
     secondaryColor: { type: String, default: "#0f172a" },
     accentColor: { type: String, default: "#FFC107" },
     logo: { type: String, default: "" },
+    favicon: { type: String, default: "" },
     font: { type: String, default: "Inter" },
     layout: { type: String, default: "modern" }, // modern | minimal | bold
 
